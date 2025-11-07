@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog.jsx'
+import { api } from '@/lib/api.js'
 import { 
   BookOpen, 
   Plus, 
@@ -43,80 +44,38 @@ const CourseManagement = ({ onSelectCourse }) => {
     }
   }, [])
 
-  const [courses, setCourses] = useState([
-    {
-      id: 1,
-      name: '机器学习基础',
-      description: '深入学习机器学习的核心算法与应用',
-      teacher: '张教授',
-      teacherId: 'teacher1',
-      students: 45,
-      startDate: '2025-09-01',
-      status: 'active',
-      progress: 65,
-      enrolledStudents: ['student1', 'student2'] // 已加入的StudentID列表
-    },
-    {
-      id: 2,
-      name: '数据结构与算法',
-      description: '掌握常用数据结构及算法设计技巧',
-      teacher: '李老师',
-      teacherId: 'teacher2',
-      students: 52,
-      startDate: '2025-09-01',
-      status: 'active',
-      progress: 78,
-      enrolledStudents: []
-    },
-    {
-      id: 3,
-      name: 'Web全栈开发',
-      description: '从前端到后端的完整Web开发实战',
-      teacher: '王老师',
-      teacherId: 'teacher3',
-      students: 38,
-      startDate: '2025-09-15',
-      status: 'active',
-      progress: 42,
-      enrolledStudents: []
-    },
-    {
-      id: 4,
-      name: '数据库系统原理',
-      description: '关系型数据库设计与SQL优化',
-      teacher: '赵教授',
-      teacherId: 'teacher4',
-      students: 49,
-      startDate: '2025-08-20',
-      status: 'active',
-      progress: 85,
-      enrolledStudents: []
-    },
-    {
-      id: 5,
-      name: '人工智能导论',
-      description: 'AI基础理论与实践应用',
-      teacher: '刘教授',
-      teacherId: 'teacher5',
-      students: 41,
-      startDate: '2025-10-01',
-      status: 'upcoming',
-      progress: 0,
-      enrolledStudents: []
-    },
-    {
-      id: 6,
-      name: '计算机网络',
-      description: '网络协议与通信原理',
-      teacher: '陈老师',
-      teacherId: 'teacher6',
-      students: 36,
-      startDate: '2025-06-01',
-      status: 'completed',
-      progress: 100,
-      enrolledStudents: []
-    },
-  ])
+  const [courses, setCourses] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  // 加载课程数据（从后端）
+  useEffect(() => {
+    const fetchCourses = async () => {
+      try {
+        setLoading(true)
+        const { data } = await api.get('/courses')
+        const list = (data?.data || []).map((c) => ({
+          id: c.id,
+          name: c.name,
+          description: c.description || '',
+          teacher: c.teacherName || '',
+          teacherId: c.teacherId,
+          students: c.students || 0,
+          startDate: c.startDate ? String(c.startDate).slice(0, 10) : '',
+          status: (c.status || 'ACTIVE').toLowerCase(),
+          progress: c.progress || 0,
+          enrolledStudents: []
+        }))
+        setCourses(list)
+        setError('')
+      } catch (e) {
+        setError(e?.message || '加载课程失败')
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchCourses()
+  }, [])
 
   const [formData, setFormData] = useState({
     name: '',
@@ -128,17 +87,8 @@ const CourseManagement = ({ onSelectCourse }) => {
 
   // 根据角色过滤课程
   const getFilteredCourses = () => {
+    // 暂时展示所有课程（后端尚未返回个人选课关系列表）
     let filtered = courses
-
-    if (currentUser?.role === 'TEACHER') {
-      // Teacher只能看到自己Create的课程
-      filtered = courses.filter(course => course.teacherId === currentUser.id || course.teacher === currentUser.name)
-    } else if (currentUser?.role === 'STUDENT') {
-      // Student只能看到已加入的课程
-      filtered = courses.filter(course => course.enrolledStudents?.includes(currentUser.id))
-    }
-    // Admin可以看到所有课程
-
     return filtered.filter(course =>
       course.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       course.teacher.toLowerCase().includes(searchTerm.toLowerCase())
@@ -194,53 +144,112 @@ const CourseManagement = ({ onSelectCourse }) => {
     setIsEditDialogOpen(true)
   }
 
-  const handleCreate = () => {
-    const newCourse = {
-      id: courses.length + 1,
-      ...formData,
-      teacherId: currentUser?.id,
-      students: 0,
-      progress: 0,
-      enrolledStudents: []
-    }
-    setCourses([...courses, newCourse])
-    setIsCreateDialogOpen(false)
-    setFormData({
-      name: '',
-      description: '',
-      teacher: '',
-      startDate: '',
-      status: 'active'
-    })
-  }
-
-  const handleUpdate = () => {
-    setCourses(courses.map(course => 
-      course.id === editingCourse.id 
-        ? { ...course, ...formData }
-        : course
-    ))
-    setIsEditDialogOpen(false)
-    setEditingCourse(null)
-  }
-
-  const handleDelete = (courseId) => {
-    if (confirm('Confirm要Delete这门课程吗?')) {
-      setCourses(courses.filter(course => course.id !== courseId))
+  const handleCreate = async () => {
+    try {
+      const token = localStorage.getItem('token')
+      const payload = {
+        name: formData.name,
+        description: formData.description,
+        startDate: formData.startDate,
+        teacherId: currentUser?.id
+      }
+      await api.post('/courses', payload, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      setIsCreateDialogOpen(false)
+      setFormData({ name: '', description: '', teacher: '', startDate: '', status: 'active' })
+      // 重新加载
+      const { data } = await api.get('/courses')
+      const list = (data?.data || []).map((c) => ({
+        id: c.id,
+        name: c.name,
+        description: c.description || '',
+        teacher: c.teacherName || '',
+        teacherId: c.teacherId,
+        students: c.students || 0,
+        startDate: c.startDate ? String(c.startDate).slice(0, 10) : '',
+        status: (c.status || 'ACTIVE').toLowerCase(),
+        progress: c.progress || 0,
+        enrolledStudents: []
+      }))
+      setCourses(list)
+    } catch (e) {
+      alert(e?.response?.data?.error || e?.message || '创建课程失败')
     }
   }
 
-  const handleJoinCourse = (course) => {
-    setCourses(courses.map(c => 
-      c.id === course.id 
-        ? { 
-            ...c, 
-            enrolledStudents: [...(c.enrolledStudents || []), currentUser.id],
-            students: c.students + 1
-          }
-        : c
-    ))
-    setIsJoinDialogOpen(false)
+  const handleUpdate = async () => {
+    try {
+      const token = localStorage.getItem('token')
+      await api.put(`/courses/${editingCourse.id}`,
+        { name: formData.name, description: formData.description, status: formData.status.toUpperCase() },
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+      )
+      setIsEditDialogOpen(false)
+      setEditingCourse(null)
+      const { data } = await api.get('/courses')
+      const list = (data?.data || []).map((c) => ({
+        id: c.id,
+        name: c.name,
+        description: c.description || '',
+        teacher: c.teacherName || '',
+        teacherId: c.teacherId,
+        students: c.students || 0,
+        startDate: c.startDate ? String(c.startDate).slice(0, 10) : '',
+        status: (c.status || 'ACTIVE').toLowerCase(),
+        progress: c.progress || 0,
+        enrolledStudents: []
+      }))
+      setCourses(list)
+    } catch (e) {
+      alert(e?.response?.data?.error || e?.message || '更新课程失败')
+    }
+  }
+
+  const handleDelete = async (courseId) => {
+    if (!confirm('Confirm要Delete这门课程吗?')) return
+    try {
+      const token = localStorage.getItem('token')
+      await api.delete(`/courses/${courseId}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      const { data } = await api.get('/courses')
+      const list = (data?.data || []).map((c) => ({
+        id: c.id,
+        name: c.name,
+        description: c.description || '',
+        teacher: c.teacherName || '',
+        teacherId: c.teacherId,
+        students: c.students || 0,
+        startDate: c.startDate ? String(c.startDate).slice(0, 10) : '',
+        status: (c.status || 'ACTIVE').toLowerCase(),
+        progress: c.progress || 0,
+        enrolledStudents: []
+      }))
+      setCourses(list)
+    } catch (e) {
+      alert(e?.response?.data?.error || e?.message || '删除课程失败')
+    }
+  }
+
+  const handleJoinCourse = async (course) => {
+    try {
+      const token = localStorage.getItem('token')
+      await api.post(`/courses/${course.id}/enroll`, {}, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      setIsJoinDialogOpen(false)
+      const { data } = await api.get('/courses')
+      const list = (data?.data || []).map((c) => ({
+        id: c.id,
+        name: c.name,
+        description: c.description || '',
+        teacher: c.teacherName || '',
+        teacherId: c.teacherId,
+        students: c.students || 0,
+        startDate: c.startDate ? String(c.startDate).slice(0, 10) : '',
+        status: (c.status || 'ACTIVE').toLowerCase(),
+        progress: c.progress || 0,
+        enrolledStudents: []
+      }))
+      setCourses(list)
+    } catch (e) {
+      alert(e?.response?.data?.error || e?.message || '加入课程失败')
+    }
   }
 
   const handleInputChange = (e) => {
@@ -308,6 +317,12 @@ const CourseManagement = ({ onSelectCourse }) => {
       </div>
 
       {/* 课程网格 */}
+      {error && (
+        <div className="text-sm text-red-600">{error}</div>
+      )}
+      {loading && (
+        <div className="text-sm text-muted-foreground">加载中…</div>
+      )}
       {filteredCourses.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredCourses.map((course) => {

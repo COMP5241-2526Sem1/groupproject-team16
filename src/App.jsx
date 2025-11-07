@@ -32,6 +32,7 @@ import VoteModule from './components/VoteModule'
 import DataAnalysis from './components/DataAnalysis'
 import AgentGenerator from './components/AgentGenerator'
 import Login from './components/Login'
+import HealthIndicator from './components/HealthIndicator.jsx'
 
 // NavHead - 顶部导航栏组件
 function NavHead({ currentCourse, user, onLogout }) {
@@ -53,7 +54,8 @@ function NavHead({ currentCourse, user, onLogout }) {
           </div>
 
           {/* 右侧用户区域 */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <HealthIndicator />
             <Button variant="ghost" size="icon" className="hidden sm:flex">
               <Search className="h-5 w-5" />
             </Button>

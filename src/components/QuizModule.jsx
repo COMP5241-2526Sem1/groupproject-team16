@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx'
 import { Button } from '@/components/ui/button.jsx'
 import { Input } from '@/components/ui/input.jsx'
@@ -26,8 +26,10 @@ import {
   Play,
   ArrowLeft,
   CheckCircle2,
-  XCircle
+  XCircle,
+  Loader2
 } from 'lucide-react'
+import { api } from '@/lib/api.js'
 
 const QuizModule = () => {
   const [searchTerm, setSearchTerm] = useState('')
@@ -36,62 +38,8 @@ const QuizModule = () => {
   const [isDoingQuiz, setIsDoingQuiz] = useState(false)
   const [userAnswers, setUserAnswers] = useState({})
   const [quizResult, setQuizResult] = useState(null)
-  
-  const [quizzes, setQuizzes] = useState([
-    {
-      id: 1,
-      title: '第三章测验 - 数据结构基础',
-      description: '考查栈、队列、链表等基础数据结构',
-      duration: 30,
-      totalQuestions: 3,
-      totalScore: 35,
-      passScore: 21,
-      status: 'active',
-      deadline: '2025-10-20',
-      submitted: 45,
-      totalStudents: 52,
-      questions: [
-        {
-          id: 1,
-          type: 'single',
-          question: '栈的特点是什么?',
-          options: ['先进先出', '先进后出', '随机访问', '顺序访问'],
-          correctAnswer: 1,
-          score: 10
-        },
-        {
-          id: 2,
-          type: 'multiple',
-          question: '以下哪些是线性数据结构?',
-          options: ['数组', '链表', '树', '栈'],
-          correctAnswer: [0, 1, 3],
-          score: 15
-        },
-        {
-          id: 3,
-          type: 'judge',
-          question: '队列是一种后进先出的数据结构',
-          correctAnswer: false,
-          score: 10
-        }
-      ]
-    },
-    {
-      id: 2,
-      title: '期中测验 - 算法设计',
-      description: '涵盖排序、查找、递归等算法',
-      duration: 60,
-      totalQuestions: 0,
-      totalScore: 100,
-      passScore: 60,
-      status: 'active',
-      deadline: '2025-10-25',
-      submitted: 38,
-      totalStudents: 52,
-      questions: []
-    }
-  ])
-
+  const [loading, setLoading] = useState(true)
+  const [quizzes, setQuizzes] = useState([])
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -99,38 +47,77 @@ const QuizModule = () => {
     passScore: 60
   })
 
+  // 获取测验列表
+  useEffect(() => {
+    fetchQuizzes()
+  }, [])
+
+  const fetchQuizzes = async () => {
+    try {
+      setLoading(true)
+      const { data } = await api.get('/quiz')
+      const list = (data?.data || []).map(q => ({
+        ...q,
+        deadline: q.deadline ? new Date(q.deadline).toISOString().split('T')[0] : '',
+        questions: q.questions || []
+      }))
+      setQuizzes(list)
+    } catch (error) {
+      console.error('Failed to fetch quizzes:', error)
+      alert('加载测验失败: ' + (error?.response?.data?.error || error.message))
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const filteredQuizzes = quizzes.filter(quiz =>
     quiz.title.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
-  const handleCreate = () => {
-    const newQuiz = {
-      id: quizzes.length + 1,
-      ...formData,
-      totalQuestions: 0,
-      totalScore: 0,
-      status: 'active',
-      submitted: 0,
-      totalStudents: 52,
-      questions: [],
-      deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-    }
-    setQuizzes([newQuiz, ...quizzes])
-    setIsCreateDialogOpen(false)
-    setFormData({ title: '', description: '', duration: 30, passScore: 60 })
-  }
-
-  const handleDelete = (quizId) => {
-    if (confirm('Confirm要Delete这个测验吗?')) {
-      setQuizzes(quizzes.filter(quiz => quiz.id !== quizId))
+  const handleCreate = async () => {
+    try {
+      const token = localStorage.getItem('token')
+      const payload = {
+        ...formData,
+        duration: parseInt(formData.duration),
+        passScore: parseInt(formData.passScore),
+        deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+      }
+      await api.post('/quiz', payload, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      setIsCreateDialogOpen(false)
+      setFormData({ title: '', description: '', duration: 30, passScore: 60 })
+      await fetchQuizzes()
+    } catch (error) {
+      alert('创建测验失败: ' + (error?.response?.data?.error || error.message))
     }
   }
 
-  const handleStartQuiz = (quiz) => {
-    setSelectedQuiz(quiz)
-    setIsDoingQuiz(true)
-    setUserAnswers({})
-    setQuizResult(null)
+  const handleDelete = async (quizId) => {
+    if (!confirm('确认要删除这个测验吗?')) return
+    try {
+      const token = localStorage.getItem('token')
+      await api.delete(`/quiz/${quizId}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      await fetchQuizzes()
+    } catch (error) {
+      alert('删除测验失败: ' + (error?.response?.data?.error || error.message))
+    }
+  }
+
+  const handleStartQuiz = async (quiz) => {
+    try {
+      // 获取完整的测验数据（包含题目，但不包含答案）
+      const { data } = await api.get(`/quiz/${quiz.id}`)
+      setSelectedQuiz(data.data)
+      setIsDoingQuiz(true)
+      setUserAnswers({})
+      setQuizResult(null)
+    } catch (error) {
+      console.error('Failed to fetch quiz details:', error)
+      setSelectedQuiz(quiz)
+      setIsDoingQuiz(true)
+      setUserAnswers({})
+      setQuizResult(null)
+    }
   }
 
   const handleAnswerChange = (questionId, answer) => {
@@ -140,40 +127,23 @@ const QuizModule = () => {
     }))
   }
 
-  const handleSubmitQuiz = () => {
-    let score = 0
-    const results = {}
-
-    selectedQuiz.questions.forEach(question => {
-      const userAnswer = userAnswers[question.id]
-      let isCorrect = false
-
-      if (question.type === 'single') {
-        isCorrect = userAnswer === question.correctAnswer
-      } else if (question.type === 'multiple') {
-        isCorrect = JSON.stringify(userAnswer?.sort()) === JSON.stringify(question.correctAnswer.sort())
-      } else if (question.type === 'judge') {
-        isCorrect = userAnswer === question.correctAnswer
-      }
-
-      if (isCorrect) {
-        score += question.score
-      }
-
-      results[question.id] = {
-        isCorrect,
-        userAnswer,
-        correctAnswer: question.correctAnswer
-      }
-    })
-
-    setQuizResult({
-      score,
-      totalScore: selectedQuiz.totalScore,
-      passed: score >= selectedQuiz.passScore,
-      results
-    })
-    setIsDoingQuiz(false)
+  const handleSubmitQuiz = async () => {
+    try {
+      const token = localStorage.getItem('token')
+      const savedUser = localStorage.getItem('user')
+      const user = savedUser ? JSON.parse(savedUser) : null
+      
+      // 提交答案到后端
+      const { data } = await api.post(`/quiz/${selectedQuiz.id}/submit`, {
+        userId: user?.id || 'student1',
+        answers: userAnswers
+      }, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      
+      setQuizResult(data.data)
+      setIsDoingQuiz(false)
+    } catch (error) {
+      alert('提交测验失败: ' + (error?.response?.data?.error || error.message))
+    }
   }
 
   const handleInputChange = (e) => {
@@ -361,6 +331,14 @@ const QuizModule = () => {
             </div>
           </CardContent>
         </Card>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     )
   }

@@ -1,169 +1,125 @@
 const express = require('express');
 const router = express.Router();
-
-// 模拟课程数据
-const courses = [
-  {
-    id: '1',
-    name: '机器学习基础',
-    description: '深入学习机器学习的核心算法与应用',
-    teacherId: '1',
-    teacherName: '张教授',
-    students: 45,
-    startDate: '2025-09-01',
-    status: 'ACTIVE',
-    progress: 65
-  },
-  {
-    id: '2',
-    name: '数据结构与算法',
-    description: '掌握常用数据结构及算法设计技巧',
-    teacherId: '1',
-    teacherName: '李老师',
-    students: 52,
-    startDate: '2025-09-01',
-    status: 'ACTIVE',
-    progress: 78
-  },
-  {
-    id: '3',
-    name: 'Web全栈开发',
-    description: '从前端到后端的完整Web开发实战',
-    teacherId: '1',
-    teacherName: '王老师',
-    students: 38,
-    startDate: '2025-09-15',
-    status: 'ACTIVE',
-    progress: 42
-  }
-];
+const { getPrisma } = require('../utils/prisma');
+const { authenticateToken } = require('../middleware/auth');
+const prisma = getPrisma();
 
 // 获取所有课程
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    res.json({
-      success: true,
-      data: courses,
-      total: courses.length
+    const list = await prisma.course.findMany({
+      include: {
+        teacher: { select: { id: true, name: true, email: true } },
+        students: true
+      }
     });
+    const data = list.map(c => ({
+      id: c.id,
+      name: c.name,
+      description: c.description,
+      teacherId: c.teacherId,
+      teacherName: c.teacher?.name || '',
+      students: c.students?.length || 0,
+      startDate: c.startDate,
+      status: c.status,
+      progress: 0
+    }));
+    res.json({ success: true, data, total: data.length });
   } catch (error) {
     res.status(500).json({ error: '获取课程列表失败', message: error.message });
   }
 });
 
 // 获取单个课程
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const course = courses.find(c => c.id === req.params.id);
-    
-    if (!course) {
-      return res.status(404).json({ error: '课程不存在' });
-    }
-
-    res.json({
-      success: true,
-      data: course
+    const c = await prisma.course.findUnique({
+      where: { id: req.params.id },
+      include: {
+        teacher: { select: { id: true, name: true, email: true } },
+        students: true,
+        discussions: true,
+        homeworks: true,
+        quizzes: true,
+        resources: true
+      }
     });
+    if (!c) return res.status(404).json({ error: '课程不存在' });
+    const course = {
+      id: c.id,
+      name: c.name,
+      description: c.description,
+      teacherId: c.teacherId,
+      teacherName: c.teacher?.name || '',
+      students: c.students?.length || 0,
+      startDate: c.startDate,
+      status: c.status,
+      progress: 0
+    };
+    res.json({ success: true, data: course });
   } catch (error) {
     res.status(500).json({ error: '获取课程详情失败', message: error.message });
   }
 });
 
-// 创建课程
-router.post('/', (req, res) => {
+// 创建课程（需要登录）
+router.post('/', authenticateToken, async (req, res) => {
   try {
-    const { name, description, startDate } = req.body;
-
-    if (!name) {
-      return res.status(400).json({ error: '课程名称不能为空' });
-    }
-
-    const newCourse = {
-      id: String(courses.length + 1),
-      name,
-      description: description || '',
-      teacherId: '1', // 应从JWT token获取
-      teacherName: '张教授',
-      students: 0,
-      startDate: startDate || new Date().toISOString().split('T')[0],
-      status: 'ACTIVE',
-      progress: 0
-    };
-
-    courses.push(newCourse);
-
-    res.status(201).json({
-      success: true,
-      message: '课程创建成功',
-      data: newCourse
+    const { name, description, startDate, teacherId } = req.body;
+    if (!name) return res.status(400).json({ error: '课程名称不能为空' });
+    const effectiveTeacherId = teacherId || req.user?.userId;
+    if (!effectiveTeacherId) return res.status(400).json({ error: '缺少教师ID' });
+    const created = await prisma.course.create({
+      data: {
+        name,
+        description: description || '',
+        teacherId: effectiveTeacherId,
+        startDate: startDate ? new Date(startDate) : null,
+      }
     });
+    res.status(201).json({ success: true, message: '课程创建成功', data: created });
   } catch (error) {
     res.status(500).json({ error: '创建课程失败', message: error.message });
   }
 });
 
-// 更新课程
-router.put('/:id', (req, res) => {
+// 更新课程（需要登录）
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
-    const courseIndex = courses.findIndex(c => c.id === req.params.id);
-    
-    if (courseIndex === -1) {
-      return res.status(404).json({ error: '课程不存在' });
-    }
-
     const { name, description, status } = req.body;
-
-    if (name) courses[courseIndex].name = name;
-    if (description) courses[courseIndex].description = description;
-    if (status) courses[courseIndex].status = status;
-
-    res.json({
-      success: true,
-      message: '课程更新成功',
-      data: courses[courseIndex]
+    const updated = await prisma.course.update({
+      where: { id: req.params.id },
+      data: { name, description, status }
     });
+    res.json({ success: true, message: '课程更新成功', data: updated });
   } catch (error) {
     res.status(500).json({ error: '更新课程失败', message: error.message });
   }
 });
 
-// 删除课程
-router.delete('/:id', (req, res) => {
+// 删除课程（需要登录）
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
-    const courseIndex = courses.findIndex(c => c.id === req.params.id);
-    
-    if (courseIndex === -1) {
-      return res.status(404).json({ error: '课程不存在' });
-    }
-
-    courses.splice(courseIndex, 1);
-
-    res.json({
-      success: true,
-      message: '课程删除成功'
-    });
+    await prisma.course.delete({ where: { id: req.params.id } });
+    res.json({ success: true, message: '课程删除成功' });
   } catch (error) {
     res.status(500).json({ error: '删除课程失败', message: error.message });
   }
 });
 
-// 加入课程
-router.post('/:id/enroll', (req, res) => {
+// 加入课程（需要登录）
+router.post('/:id/enroll', authenticateToken, async (req, res) => {
   try {
-    const course = courses.find(c => c.id === req.params.id);
-    
-    if (!course) {
-      return res.status(404).json({ error: '课程不存在' });
-    }
-
-    course.students += 1;
-
-    res.json({
-      success: true,
-      message: '加入课程成功',
-      data: course
-    });
+    const courseId = req.params.id;
+    const studentId = req.user?.userId;
+    if (!studentId) return res.status(400).json({ error: '缺少学生ID' });
+    // 去重唯一约束
+    await prisma.courseStudent.create({ data: { courseId, studentId } });
+    res.json({ success: true, message: '加入课程成功' });
   } catch (error) {
+    if (error?.code === 'P2002') {
+      return res.json({ success: true, message: '已加入课程' });
+    }
     res.status(500).json({ error: '加入课程失败', message: error.message });
   }
 });

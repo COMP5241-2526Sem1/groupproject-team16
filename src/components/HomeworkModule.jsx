@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx'
 import { Button } from '@/components/ui/button.jsx'
 import { Input } from '@/components/ui/input.jsx'
@@ -6,72 +6,111 @@ import { Label } from '@/components/ui/label.jsx'
 import { Textarea } from '@/components/ui/textarea.jsx'
 import { Badge } from '@/components/ui/badge.jsx'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog.jsx'
-import { FileText, Plus, Search, Calendar, Users, Edit, Trash2, Upload, Download, ArrowLeft, CheckCircle2, Clock, AlertCircle } from 'lucide-react'
+import { FileText, Plus, Search, Calendar, Users, Edit, Trash2, Upload, Download, ArrowLeft, CheckCircle2, Clock, AlertCircle, Loader2 } from 'lucide-react'
+import { api } from '@/lib/api.js'
 
 const HomeworkModule = () => {
   const [searchTerm, setSearchTerm] = useState('')
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [selectedHomework, setSelectedHomework] = useState(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  
-  const [homeworks, setHomeworks] = useState([
-    {
-      id: 1,
-      title: '第三章编程作业 - 链表实现',
-      description: '实现单链表的基本操作,包括插入、Delete、查找等功能',
-      dueDate: '2025-10-20 23:59',
-      totalScore: 100,
-      status: 'active',
-      submitted: 38,
-      totalStudents: 52,
-      attachments: ['作业要求.pdf', '测试用例.zip'],
-      submissions: [
-        { id: 1, studentName: '张三', studentId: '2021001', submitTime: '2025-10-15 14:30', files: ['homework.py'], score: null, status: 'submitted' },
-        { id: 2, studentName: '李四', studentId: '2021002', submitTime: '2025-10-16 09:20', files: ['solution.cpp'], score: 95, status: 'graded' }
-      ]
-    },
-    {
-      id: 2,
-      title: '算法分析报告',
-      description: '分析快速排序和归并排序的时间复杂度,并进行实验验证',
-      dueDate: '2025-10-25 23:59',
-      totalScore: 100,
-      status: 'active',
-      submitted: 25,
-      totalStudents: 52,
-      attachments: ['报告模板.docx'],
-      submissions: []
-    }
-  ])
-
+  const [loading, setLoading] = useState(true)
+  const [homeworks, setHomeworks] = useState([])
   const [formData, setFormData] = useState({ title: '', description: '', dueDate: '', totalScore: 100 })
+
+  // 获取作业列表
+  useEffect(() => {
+    fetchHomeworks()
+  }, [])
+
+  const fetchHomeworks = async () => {
+    try {
+      setLoading(true)
+      const { data } = await api.get('/homework')
+      const list = (data?.data || []).map(hw => ({
+        ...hw,
+        dueDate: hw.dueDate ? new Date(hw.dueDate).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '',
+        attachments: hw.attachments || [],
+        submissions: hw.submissions || []
+      }))
+      setHomeworks(list)
+    } catch (error) {
+      console.error('Failed to fetch homeworks:', error)
+      alert('加载作业失败: ' + (error?.response?.data?.error || error.message))
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const filteredHomeworks = homeworks.filter(hw => hw.title.toLowerCase().includes(searchTerm.toLowerCase()))
 
-  const handleCreate = () => {
-    const newHomework = { id: homeworks.length + 1, ...formData, status: 'active', submitted: 0, totalStudents: 52, attachments: [], submissions: [] }
-    setHomeworks([newHomework, ...homeworks])
-    setIsCreateDialogOpen(false)
-    setFormData({ title: '', description: '', dueDate: '', totalScore: 100 })
-  }
-
-  const handleDelete = (hwId) => {
-    if (confirm('Confirm要Delete这个作业吗?')) {
-      setHomeworks(homeworks.filter(hw => hw.id !== hwId))
+  const handleCreate = async () => {
+    try {
+      const token = localStorage.getItem('token')
+      const payload = {
+        ...formData,
+        dueDate: new Date(formData.dueDate).toISOString(),
+        totalScore: parseInt(formData.totalScore)
+      }
+      await api.post('/homework', payload, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      setIsCreateDialogOpen(false)
+      setFormData({ title: '', description: '', dueDate: '', totalScore: 100 })
+      await fetchHomeworks()
+    } catch (error) {
+      alert('创建作业失败: ' + (error?.response?.data?.error || error.message))
     }
   }
 
-  const handleViewDetails = (hw) => {
-    setSelectedHomework(hw)
-    setIsSubmitting(false)
+  const handleDelete = async (hwId) => {
+    if (!confirm('确认要删除这个作业吗?')) return
+    try {
+      const token = localStorage.getItem('token')
+      await api.delete(`/homework/${hwId}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      await fetchHomeworks()
+    } catch (error) {
+      alert('删除作业失败: ' + (error?.response?.data?.error || error.message))
+    }
+  }
+
+  const handleViewDetails = async (hw) => {
+    try {
+      const { data } = await api.get(`/homework/${hw.id}`)
+      setSelectedHomework({
+        ...data.data,
+        dueDate: data.data.dueDate ? new Date(data.data.dueDate).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
+      })
+      setIsSubmitting(false)
+    } catch (error) {
+      console.error('Failed to fetch homework details:', error)
+      setSelectedHomework(hw)
+      setIsSubmitting(false)
+    }
   }
 
   const handleStartSubmit = () => setIsSubmitting(true)
 
-  const handleSubmit = () => {
-    alert('作业Submit成功!')
-    setIsSubmitting(false)
-    setSelectedHomework(null)
+  const handleSubmit = async (files) => {
+    try {
+      const token = localStorage.getItem('token')
+      const savedUser = localStorage.getItem('user')
+      const user = savedUser ? JSON.parse(savedUser) : null
+      
+      // 这里应该先上传文件，然后提交作业
+      // 简化处理：直接提交
+      await api.post(`/homework/${selectedHomework.id}/submit`, {
+        studentId: user?.id || 'student1',
+        studentName: user?.name || '学生',
+        files: files || [{ name: 'homework.zip', url: '/uploads/homework.zip' }],
+        comment: ''
+      }, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      
+      alert('作业提交成功!')
+      setIsSubmitting(false)
+      await fetchHomeworks()
+      setSelectedHomework(null)
+    } catch (error) {
+      alert('提交作业失败: ' + (error?.response?.data?.error || error.message))
+    }
   }
 
   const handleInputChange = (e) => {
@@ -111,13 +150,13 @@ const HomeworkModule = () => {
               <div><div className="text-sm text-muted-foreground">Submit情况</div><div className="font-medium">{selectedHomework.submitted}/{selectedHomework.totalStudents} 人</div></div>
             </div>
 
-            {selectedHomework.attachments.length > 0 && (
+                  {selectedHomework.attachments && selectedHomework.attachments.length > 0 && (
               <div className="space-y-3">
                 <h3 className="font-semibold">Homework Attachments</h3>
                 <div className="space-y-2">
                   {selectedHomework.attachments.map((file, index) => (
                     <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div className="flex items-center gap-2"><FileText className="h-4 w-4 text-muted-foreground" /><span className="text-sm">{file}</span></div>
+                      <div className="flex items-center gap-2"><FileText className="h-4 w-4 text-muted-foreground" /><span className="text-sm">{typeof file === 'string' ? file : file.name}</span></div>
                       <Button variant="ghost" size="sm" className="gap-1"><Download className="h-4 w-4" />Download</Button>
                     </div>
                   ))}
@@ -187,11 +226,19 @@ const HomeworkModule = () => {
               <Textarea id="comment" placeholder="Add notes or comments(可选)" rows={4} />
             </div>
             <div className="flex gap-2">
-              <Button onClick={handleSubmit} className="gap-2"><CheckCircle2 className="h-4 w-4" />确认Submit</Button>
+              <Button onClick={() => handleSubmit()} className="gap-2"><CheckCircle2 className="h-4 w-4" />确认Submit</Button>
               <Button variant="outline" onClick={() => setIsSubmitting(false)}>Cancel</Button>
             </div>
           </CardContent>
         </Card>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     )
   }

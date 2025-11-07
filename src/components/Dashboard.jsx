@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx'
 import { Button } from '@/components/ui/button.jsx'
 import { 
@@ -8,42 +9,59 @@ import {
   TrendingUp,
   Clock,
   Award,
-  Sparkles
+  Sparkles,
+  Loader2
 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts'
+import { api } from '@/lib/api.js'
 
 const Dashboard = () => {
-  const stats = [
-    { title: '活跃课程', value: '12', icon: BookOpen, trend: '+2', color: 'text-blue-600' },
-    { title: '注册学生', value: '248', icon: Users, trend: '+15', color: 'text-green-600' },
-    { title: '待批改作业', value: '34', icon: FileText, trend: '-8', color: 'text-orange-600' },
-    { title: '本周测验', value: '8', icon: CheckSquare, trend: '+3', color: 'text-purple-600' },
-  ]
+  const [loading, setLoading] = useState(true)
+  const [stats, setStats] = useState([
+    { title: '活跃课程', value: '0', icon: BookOpen, trend: '+0', color: 'text-blue-600' },
+    { title: '注册学生', value: '0', icon: Users, trend: '+0', color: 'text-green-600' },
+    { title: '待批改作业', value: '0', icon: FileText, trend: '+0', color: 'text-orange-600' },
+    { title: '本周测验', value: '0', icon: CheckSquare, trend: '+0', color: 'text-purple-600' },
+  ])
+  const [courseData, setCourseData] = useState([])
+  const [activityData, setActivityData] = useState([])
+  const [recentActivities, setRecentActivities] = useState([])
 
-  const courseData = [
-    { name: '机器学习', students: 45, completion: 78 },
-    { name: '数据结构', students: 52, completion: 85 },
-    { name: 'Web开发', students: 38, completion: 72 },
-    { name: '算法设计', students: 41, completion: 68 },
-    { name: '数据库', students: 49, completion: 82 },
-  ]
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        setLoading(true)
+        const { data } = await api.get('/analytics/dashboard')
+        const dashboardData = data.data
 
-  const activityData = [
-    { day: '周一', submissions: 12, logins: 45 },
-    { day: '周二', submissions: 19, logins: 52 },
-    { day: '周三', submissions: 15, logins: 48 },
-    { day: '周四', submissions: 22, logins: 58 },
-    { day: '周五', submissions: 28, logins: 65 },
-    { day: '周六', submissions: 8, logins: 25 },
-    { day: '周日', submissions: 5, logins: 18 },
-  ]
+        // 更新统计数据
+        setStats([
+          { title: '活跃课程', value: String(dashboardData.stats.activeCourses), icon: BookOpen, trend: '+2', color: 'text-blue-600' },
+          { title: '注册学生', value: String(dashboardData.stats.enrolledStudents), icon: Users, trend: '+15', color: 'text-green-600' },
+          { title: '待批改作业', value: String(dashboardData.stats.pendingGrading), icon: FileText, trend: '-8', color: 'text-orange-600' },
+          { title: '本周测验', value: String(dashboardData.stats.weeklyQuizzes), icon: CheckSquare, trend: '+3', color: 'text-purple-600' },
+        ])
 
-  const recentActivities = [
-    { user: '张三', action: '提交了作业', course: '机器学习基础', time: '5分钟前' },
-    { user: '李四', action: '完成了测验', course: 'Web开发实战', time: '15分钟前' },
-    { user: '王五', action: '发起了讨论', course: '数据结构', time: '1小时前' },
-    { user: '赵六', action: '上传了资源', course: '算法设计', time: '2小时前' },
-  ]
+        setCourseData(dashboardData.courseData || [])
+        setActivityData(dashboardData.activityData || [])
+        setRecentActivities(dashboardData.recentActivities || [])
+      } catch (error) {
+        console.error('Failed to fetch dashboard data:', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchDashboardData()
+  }, [])
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">

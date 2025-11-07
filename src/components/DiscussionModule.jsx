@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx'
 import { Button } from '@/components/ui/button.jsx'
 import { Input } from '@/components/ui/input.jsx'
@@ -24,73 +24,41 @@ import {
   Edit,
   Trash2,
   Send,
-  ArrowLeft
+  ArrowLeft,
+  Loader2
 } from 'lucide-react'
+import { api } from '@/lib/api.js'
 
 const DiscussionModule = () => {
   const [searchTerm, setSearchTerm] = useState('')
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [selectedPost, setSelectedPost] = useState(null)
   const [replyContent, setReplyContent] = useState('')
-  
-  const [posts, setPosts] = useState([
-    {
-      id: 1,
-      title: '关于第三章作业的疑问',
-      content: '请问第三章的递归算法作业中,如何优化时间复杂度?',
-      author: '李明',
-      avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=1',
-      createdAt: '2025-10-10 14:30',
-      isPinned: true,
-      likes: 15,
-      replies: 2,
-      tags: ['作业', '算法'],
-      replyList: [
-        {
-          id: 101,
-          author: '张教授',
-          avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=teacher',
-          content: '可以考虑使用动态规划来优化,避免重复计算。',
-          createdAt: '2025-10-10 15:00',
-          likes: 5
-        },
-        {
-          id: 102,
-          author: '王同学',
-          avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=2',
-          content: '我也遇到了同样的问questions,期待老师的解答!',
-          createdAt: '2025-10-10 15:15',
-          likes: 2
-        }
-      ]
-    },
-    {
-      id: 2,
-      title: '课程项目小组招募',
-      content: '我们小组还缺2名成员,希望擅长前端开发的同学加入!',
-      author: '赵强',
-      avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=3',
-      createdAt: '2025-10-09 10:20',
-      isPinned: false,
-      likes: 23,
-      replies: 0,
-      tags: ['项目', '招募'],
-      replyList: []
-    },
-    {
-      id: 3,
-      title: '期中考试复习资料分享',
-      content: '整理了一份期中考试的复习大纲和重点questions目,分享给大家。',
-      author: '刘芳',
-      avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=4',
-      createdAt: '2025-10-08 16:45',
-      isPinned: true,
-      likes: 45,
-      replies: 0,
-      tags: ['考试', '资料'],
-      replyList: []
+  const [loading, setLoading] = useState(true)
+  const [posts, setPosts] = useState([])
+
+  // 获取讨论列表
+  useEffect(() => {
+    fetchPosts()
+  }, [])
+
+  const fetchPosts = async () => {
+    try {
+      setLoading(true)
+      const { data } = await api.get('/discussion')
+      const list = (data?.data || []).map(post => ({
+        ...post,
+        createdAt: post.createdAt ? new Date(post.createdAt).toLocaleString('zh-CN') : '',
+        replyList: post.replyList || []
+      }))
+      setPosts(list)
+    } catch (error) {
+      console.error('Failed to fetch posts:', error)
+      alert('加载讨论失败: ' + (error?.response?.data?.error || error.message))
+    } finally {
+      setLoading(false)
     }
-  ])
+  }
 
   const [formData, setFormData] = useState({
     title: '',
@@ -104,88 +72,139 @@ const DiscussionModule = () => {
     post.author.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
-  const handleCreate = () => {
-    const newPost = {
-      id: posts.length + 1,
-      ...formData,
-      tags: formData.tags.split(',').map(t => t.trim()).filter(t => t),
-      author: '当前用户',
-      avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=current',
-      createdAt: new Date().toLocaleString('zh-CN'),
-      isPinned: false,
-      likes: 0,
-      replies: 0,
-      replyList: []
+  const handleCreate = async () => {
+    try {
+      const token = localStorage.getItem('token')
+      const savedUser = localStorage.getItem('user')
+      const user = savedUser ? JSON.parse(savedUser) : null
+      
+      const payload = {
+        ...formData,
+        tags: formData.tags,
+        courseId: '1',
+        author: user?.name || '当前用户',
+        authorId: user?.id || 'user1',
+        avatar: user?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.email || 'current'}`
+      }
+      await api.post('/discussion', payload, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      setIsCreateDialogOpen(false)
+      setFormData({ title: '', content: '', tags: '' })
+      await fetchPosts()
+    } catch (error) {
+      alert('发布讨论失败: ' + (error?.response?.data?.error || error.message))
     }
-    setPosts([newPost, ...posts])
-    setIsCreateDialogOpen(false)
-    setFormData({ title: '', content: '', tags: '' })
   }
 
-  const handleDelete = (postId) => {
-    if (confirm('Confirm要Delete这个帖子吗?')) {
-      setPosts(posts.filter(post => post.id !== postId))
+  const handleDelete = async (postId) => {
+    if (!confirm('确认要删除这个帖子吗?')) return
+    try {
+      const token = localStorage.getItem('token')
+      await api.delete(`/discussion/${postId}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      await fetchPosts()
+      if (selectedPost?.id === postId) {
+        setSelectedPost(null)
+      }
+    } catch (error) {
+      alert('删除讨论失败: ' + (error?.response?.data?.error || error.message))
     }
   }
 
-  const handleLike = (postId) => {
-    setPosts(posts.map(post =>
-      post.id === postId ? { ...post, likes: post.likes + 1 } : post
-    ))
+  const handleLike = async (postId) => {
+    try {
+      await api.post(`/discussion/${postId}/like`)
+      await fetchPosts()
+      if (selectedPost?.id === postId) {
+        const { data } = await api.get(`/discussion/${postId}`)
+        setSelectedPost({
+          ...data.data,
+          createdAt: data.data.createdAt ? new Date(data.data.createdAt).toLocaleString('zh-CN') : ''
+        })
+      }
+    } catch (error) {
+      console.error('Failed to like post:', error)
+    }
   }
 
-  const handlePin = (postId) => {
-    setPosts(posts.map(post =>
-      post.id === postId ? { ...post, isPinned: !post.isPinned } : post
-    ))
+  const handlePin = async (postId) => {
+    try {
+      const token = localStorage.getItem('token')
+      await api.post(`/discussion/${postId}/pin`, {}, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      await fetchPosts()
+      if (selectedPost?.id === postId) {
+        const { data } = await api.get(`/discussion/${postId}`)
+        setSelectedPost({
+          ...data.data,
+          createdAt: data.data.createdAt ? new Date(data.data.createdAt).toLocaleString('zh-CN') : ''
+        })
+      }
+    } catch (error) {
+      console.error('Failed to pin post:', error)
+    }
   }
 
-  const handleViewPost = (post) => {
-    setSelectedPost(post)
+  const handleViewPost = async (post) => {
+    try {
+      const { data } = await api.get(`/discussion/${post.id}`)
+      setSelectedPost({
+        ...data.data,
+        createdAt: data.data.createdAt ? new Date(data.data.createdAt).toLocaleString('zh-CN') : '',
+        replyList: (data.data.replyList || []).map(reply => ({
+          ...reply,
+          createdAt: reply.createdAt ? new Date(reply.createdAt).toLocaleString('zh-CN') : ''
+        }))
+      })
+    } catch (error) {
+      console.error('Failed to fetch post details:', error)
+      setSelectedPost(post)
+    }
   }
 
-  const handleReply = () => {
+  const handleReply = async () => {
     if (!replyContent.trim()) return
-
-    const newReply = {
-      id: Date.now(),
-      author: '当前用户',
-      avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=current',
-      content: replyContent,
-      createdAt: new Date().toLocaleString('zh-CN'),
-      likes: 0
+    try {
+      const token = localStorage.getItem('token')
+      const savedUser = localStorage.getItem('user')
+      const user = savedUser ? JSON.parse(savedUser) : null
+      
+      await api.post(`/discussion/${selectedPost.id}/reply`, {
+        content: replyContent,
+        author: user?.name || '当前用户',
+        authorId: user?.id || 'user1',
+        avatar: user?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.email || 'current'}`
+      }, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      
+      setReplyContent('')
+      // 重新获取帖子详情
+      const { data } = await api.get(`/discussion/${selectedPost.id}`)
+      setSelectedPost({
+        ...data.data,
+        createdAt: data.data.createdAt ? new Date(data.data.createdAt).toLocaleString('zh-CN') : '',
+        replyList: (data.data.replyList || []).map(reply => ({
+          ...reply,
+          createdAt: reply.createdAt ? new Date(reply.createdAt).toLocaleString('zh-CN') : ''
+        }))
+      })
+      await fetchPosts()
+    } catch (error) {
+      alert('回复失败: ' + (error?.response?.data?.error || error.message))
     }
-
-    setPosts(posts.map(post =>
-      post.id === selectedPost.id
-        ? {
-            ...post,
-            replies: post.replies + 1,
-            replyList: [...(post.replyList || []), newReply]
-          }
-        : post
-    ))
-
-    setSelectedPost({
-      ...selectedPost,
-      replies: selectedPost.replies + 1,
-      replyList: [...(selectedPost.replyList || []), newReply]
-    })
-
-    setReplyContent('')
   }
 
-  const handleReplyLike = (replyId) => {
-    const updatedPost = {
-      ...selectedPost,
-      replyList: selectedPost.replyList.map(reply =>
-        reply.id === replyId ? { ...reply, likes: reply.likes + 1 } : reply
-      )
+  const handleReplyLike = async (replyId) => {
+    try {
+      await api.post(`/discussion/${selectedPost.id}/reply/${replyId}/like`)
+      const { data } = await api.get(`/discussion/${selectedPost.id}`)
+      setSelectedPost({
+        ...data.data,
+        createdAt: data.data.createdAt ? new Date(data.data.createdAt).toLocaleString('zh-CN') : '',
+        replyList: (data.data.replyList || []).map(reply => ({
+          ...reply,
+          createdAt: reply.createdAt ? new Date(reply.createdAt).toLocaleString('zh-CN') : ''
+        }))
+      })
+    } catch (error) {
+      console.error('Failed to like reply:', error)
     }
-    setSelectedPost(updatedPost)
-    setPosts(posts.map(post =>
-      post.id === selectedPost.id ? updatedPost : post
-    ))
   }
 
   const handleInputChange = (e) => {
@@ -304,6 +323,14 @@ const DiscussionModule = () => {
             </div>
           </CardContent>
         </Card>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     )
   }

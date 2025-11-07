@@ -1,9 +1,11 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const path = require('path');
+const { getPrisma } = require('./utils/prisma');
 
-// 加载环境变量
-dotenv.config();
+// 加载环境变量（固定从 server/.env 读取）
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 // 创建Express应用
 const app = express();
@@ -41,9 +43,24 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/upload', uploadRoutes);
 
-// 健康检查
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Agent Teaching Management API is running' });
+// 健康检查（包含数据库连通性）
+app.get('/health', async (req, res) => {
+  const result = { status: 'ok', message: 'Agent Teaching Management API is running' };
+  try {
+    if (process.env.DATABASE_URL) {
+      const prisma = getPrisma();
+      // 尝试一次简单的连接（查询当前时间）
+      await prisma.$queryRaw`SELECT 1`;
+      result.dbConnected = true;
+    } else {
+      result.dbConnected = false;
+      result.dbMessage = 'DATABASE_URL 未配置';
+    }
+  } catch (e) {
+    result.dbConnected = false;
+    result.dbMessage = e.message;
+  }
+  res.json(result);
 });
 
 // 错误处理中间件
