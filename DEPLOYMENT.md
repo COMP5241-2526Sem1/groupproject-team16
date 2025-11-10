@@ -1,13 +1,95 @@
-# Deployment Guide
+# Deployment Guide - Agent Teaching Management Platform
 
-This guide covers different deployment options for the Agent Teaching Platform.
+This guide covers deployment options for the Agent Teaching Platform with both frontend and backend support.
 
 ## 📋 Table of Contents
 
+- [Quick Start - Vercel Full-Stack](#quick-start---vercel-full-stack)
 - [Local Development](#local-development)
-- [Frontend Deployment](#frontend-deployment)
-- [Backend Deployment](#backend-deployment)
-- [Full-Stack Deployment](#full-stack-deployment)
+- [Frontend-Only Deployment](#frontend-only-deployment)
+- [Backend-Only Deployment](#backend-only-deployment)
+- [Full-Stack Deployment Options](#full-stack-deployment-options)
+- [Database Setup](#database-setup)
+- [Environment Variables](#environment-variables)
+- [Troubleshooting](#troubleshooting)
+
+---
+
+## 🚀 Quick Start - Vercel Full-Stack
+
+**The recommended way to deploy this application with both frontend and backend:**
+
+### Prerequisites
+
+- GitHub account
+- Vercel account (free)
+- PostgreSQL database (Vercel Postgres recommended)
+
+### Step 1: Prepare Your Code
+
+```bash
+# Ensure your code is pushed to GitHub
+git add .
+git commit -m "Ready for Vercel deployment"
+git push origin main
+```
+
+### Step 2: Deploy to Vercel
+
+1. Visit [vercel.com](https://vercel.com) and log in with GitHub
+2. Click "New Project"
+3. Import your GitHub repository
+4. Vercel will auto-detect the configuration from `vercel.json`
+5. Click "Deploy"
+
+### Step 3: Set Up Database
+
+**Option A: Vercel Postgres (Recommended)**
+1. In your Vercel project dashboard, go to "Storage"
+2. Click "Create Database" → "Postgres"
+3. Choose your region and click "Create"
+4. Database environment variables will be automatically added
+
+**Option B: External PostgreSQL**
+1. Get a PostgreSQL database from Railway, Render, or other providers
+2. In Vercel project settings → "Environment Variables"
+3. Add `DATABASE_URL` with your connection string
+
+### Step 4: Configure Environment Variables
+
+In Vercel project settings → "Environment Variables", add:
+
+```env
+NODE_ENV=production
+JWT_SECRET=your-super-secret-jwt-key-change-this-to-something-random
+DATABASE_URL=postgresql://... (automatically added if using Vercel Postgres)
+```
+
+### Step 5: Run Database Migrations
+
+```bash
+# Clone your deployed app or use existing local copy
+cd your-project
+cd server
+
+# Install dependencies if not already done
+npm install
+
+# Set DATABASE_URL to your production database
+export DATABASE_URL="your-production-database-url"
+
+# Run migrations
+npx prisma migrate deploy
+npx prisma generate
+```
+
+### Step 6: Test Your Deployment
+
+- Frontend: `https://your-app.vercel.app`
+- Backend API: `https://your-app.vercel.app/api/health`
+- API docs: `https://your-app.vercel.app/api`
+
+That's it! Your full-stack application is now live on Vercel with serverless backend functions.
 
 ---
 
@@ -17,7 +99,7 @@ This guide covers different deployment options for the Agent Teaching Platform.
 
 - Node.js 18 or higher
 - pnpm (recommended) or npm
-- Git
+- PostgreSQL database
 
 ### Setup
 
@@ -26,364 +108,318 @@ This guide covers different deployment options for the Agent Teaching Platform.
 git clone https://github.com/yourusername/agent-teaching-platform.git
 cd agent-teaching-platform
 
-# Install dependencies
-pnpm install
+# Install all dependencies (frontend + backend)
+pnpm run install:all
 
-# Start development server
-pnpm run dev
+# Copy environment variables
+cp .env.example .env
+# Edit .env with your local database URL and JWT secret
+
+# Set up database
+pnpm run db:migrate
+pnpm run db:generate
+
+# Start both frontend and backend
+pnpm run dev:full
 ```
 
-The application will be available at http://localhost:5173
+### Available Scripts
+
+```bash
+# Development
+pnpm run dev              # Start frontend only (with API proxy)
+pnpm run dev:full         # Start both frontend and backend
+pnpm run server:dev       # Start backend only
+
+# Building
+pnpm run build            # Build frontend only
+pnpm run build:full       # Build frontend and install backend deps
+
+# Database
+pnpm run db:migrate       # Run database migrations
+pnpm run db:generate      # Generate Prisma client
+pnpm run db:studio        # Open Prisma Studio
+
+# Installation
+pnpm run install:all      # Install both frontend and backend deps
+```
 
 ---
 
-## 🌐 Frontend Deployment
+## 🌐 Frontend-Only Deployment
 
-### Option 1: Vercel (Recommended)
+If you want to deploy just the frontend (using existing backend):
 
-**Automatic Deployment:**
-
-1. Push your code to GitHub
-2. Visit [vercel.com](https://vercel.com)
-3. Click "New Project"
-4. Import your GitHub repository
-5. Vercel will auto-detect Vite and configure build settings
-6. Click "Deploy"
-
-**Manual Deployment:**
+### Vercel
 
 ```bash
-# Install Vercel CLI
-npm i -g vercel
-
-# Login
-vercel login
+# Update vite.config.js to point to your backend
+export default defineConfig({
+  // ... other config
+  define: {
+    'process.env.VITE_API_URL': JSON.stringify('https://your-backend-url.com')
+  }
+})
 
 # Deploy
 vercel
-
-# Deploy to production
-vercel --prod
 ```
 
-### Option 2: Netlify
-
-**Via Netlify CLI:**
-
-```bash
-# Install Netlify CLI
-npm install -g netlify-cli
-
-# Build the project
-pnpm run build
-
-# Deploy
-netlify deploy
-
-# Deploy to production
-netlify deploy --prod
-```
-
-**Via Netlify Dashboard:**
-
-1. Build your project: `pnpm run build`
-2. Visit [netlify.com](https://netlify.com)
-3. Drag and drop the `dist/` folder
-
-### Option 3: GitHub Pages
-
-```bash
-# Install gh-pages
-pnpm add -D gh-pages
-
-# Add to package.json scripts:
-"scripts": {
-  "deploy": "gh-pages -d dist"
-}
-
-# Build and deploy
-pnpm run build
-pnpm run deploy
-```
-
-**Note:** Update `vite.config.js` for GitHub Pages:
-
-```javascript
-export default defineConfig({
-  base: '/your-repo-name/',
-  // ... other config
-})
-```
-
-### Option 4: Static Hosting (AWS S3, Cloudflare Pages, etc.)
+### Netlify
 
 ```bash
 # Build the project
 pnpm run build
 
-# Upload the dist/ folder to your static hosting service
+# Deploy with Netlify CLI
+netlify deploy --prod --dir=dist
+```
+
+### Other Static Hosts
+
+```bash
+# Build the project
+pnpm run build
+
+# Upload the dist/ folder to your hosting service
 ```
 
 ---
 
-## 🔧 Backend Deployment
+## 🔧 Backend-Only Deployment
 
-### Option 1: Railway
+### Railway
 
-1. Visit [railway.app](https://railway.app)
-2. Click "New Project" → "Deploy from GitHub repo"
-3. Select your repository
+1. Create new project on [railway.app](https://railway.app)
+2. Connect GitHub repository
+3. Set root directory to `server`
 4. Add environment variables:
-   - `DATABASE_URL` - PostgreSQL connection string
-   - `JWT_SECRET` - Random secret key
-   - `PORT` - 3001
-5. Set root directory to `server`
-6. Deploy
+   ```env
+   DATABASE_URL=postgresql://...
+   JWT_SECRET=your-secret
+   PORT=3001
+   NODE_ENV=production
+   ```
+5. Deploy
 
-### Option 2: Render
+### Render
 
-1. Visit [render.com](https://render.com)
-2. Click "New" → "Web Service"
-3. Connect your GitHub repository
-4. Configure:
-   - **Build Command:** `cd server && npm install`
-   - **Start Command:** `cd server && node index.js`
-   - **Environment:** Node
-5. Add environment variables
-6. Create service
+1. Create new Web Service on [render.com](https://render.com)
+2. Configure:
+   - **Root Directory:** `server`
+   - **Build Command:** `npm install`
+   - **Start Command:** `node index.js`
+3. Add environment variables
+4. Deploy
 
-### Option 3: Heroku
+### Heroku
 
 ```bash
-# Install Heroku CLI
-npm install -g heroku
-
-# Login
-heroku login
-
-# Create app
+# From project root
 heroku create your-app-name
-
-# Add PostgreSQL
 heroku addons:create heroku-postgresql:hobby-dev
-
-# Set environment variables
-heroku config:set JWT_SECRET=your-secret-key
-
-# Deploy
+heroku config:set JWT_SECRET=your-secret
 git subtree push --prefix server heroku main
-
-# Or use Heroku Dashboard to connect GitHub
 ```
 
-### Option 4: VPS (DigitalOcean, Linode, etc.)
+---
+
+## 🚀 Full-Stack Deployment Options
+
+### Option 1: Vercel (Recommended) ⭐
+
+**Pros:** Easy setup, serverless functions, great performance, integrated database
+**Best for:** Most use cases, especially MVP and production apps
+
+Setup covered in [Quick Start](#quick-start---vercel-full-stack) above.
+
+### Option 2: Vercel Frontend + Railway Backend
+
+**Pros:** More control over backend, persistent servers
+**Best for:** Apps with complex backend requirements
+
+1. Deploy backend to Railway (see above)
+2. Deploy frontend to Vercel with `VITE_API_URL` pointing to Railway
+3. Configure CORS in backend to allow Vercel domain
+
+### Option 3: Single VPS
+
+**Pros:** Full control, cost-effective for high traffic
+**Best for:** Large applications, custom requirements
 
 ```bash
-# SSH into your server
-ssh user@your-server-ip
-
+# On your server (Ubuntu/Debian)
 # Install Node.js
 curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt-get install -y nodejs
+sudo apt-get install -y nodejs nginx postgresql
 
-# Clone repository
-git clone https://github.com/yourusername/agent-teaching-platform.git
-cd agent-teaching-platform/server
+# Set up database
+sudo -u postgres createdb agent_platform
 
-# Install dependencies
-npm install
+# Clone and build
+git clone your-repo
+cd agent-teaching-platform
+pnpm run install:all
+pnpm run build
 
-# Install PM2 for process management
+# Set up environment
+cp .env.example .env
+# Edit .env with production values
+
+# Run migrations
+cd server && npx prisma migrate deploy
+
+# Install PM2 and start backend
 sudo npm install -g pm2
+pm2 start server/index.js --name agent-backend
 
-# Start server
-pm2 start index.js --name agent-platform
-
-# Save PM2 configuration
-pm2 save
-pm2 startup
+# Configure Nginx (serve frontend + proxy API)
+# Copy nginx.conf to /etc/nginx/sites-available/
+sudo ln -s /etc/nginx/sites-available/agent-platform /etc/nginx/sites-enabled/
+sudo systemctl reload nginx
 ```
 
 ---
 
-## 🚀 Full-Stack Deployment
+## � Database Setup
 
-### Option 1: Vercel (Frontend) + Railway (Backend)
+### Vercel Postgres (Recommended for Vercel deployment)
 
-**Frontend (Vercel):**
-1. Deploy frontend to Vercel (see above)
-2. Add environment variable: `VITE_API_URL=https://your-backend.railway.app`
+1. In Vercel dashboard → Storage → Create Database → Postgres
+2. Environment variables are automatically added
+3. Run migrations from local machine:
+   ```bash
+   # Copy DATABASE_URL from Vercel
+   export DATABASE_URL="postgres://..."
+   cd server
+   npx prisma migrate deploy
+   ```
 
-**Backend (Railway):**
-1. Deploy backend to Railway (see above)
-2. Note the deployment URL
+### Railway PostgreSQL
 
-### Option 2: Single Server Deployment
+1. Create PostgreSQL service on Railway
+2. Copy connection URL
+3. Add to environment variables as `DATABASE_URL`
+4. Run migrations
 
-**Using Nginx as reverse proxy:**
-
-```nginx
-# /etc/nginx/sites-available/agent-platform
-server {
-    listen 80;
-    server_name your-domain.com;
-
-    # Frontend
-    location / {
-        root /var/www/agent-platform/dist;
-        try_files $uri $uri/ /index.html;
-    }
-
-    # Backend API
-    location /api {
-        proxy_pass http://localhost:3001;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
-}
-```
-
-**Setup:**
+### Local PostgreSQL
 
 ```bash
-# Build frontend
-pnpm run build
+# Install PostgreSQL
+sudo apt install postgresql postgresql-contrib  # Ubuntu/Debian
+brew install postgresql                          # macOS
 
-# Copy to web root
-sudo cp -r dist/* /var/www/agent-platform/
+# Create database
+sudo -u postgres createdb agent_platform
 
-# Start backend with PM2
-cd server
-pm2 start index.js
-
-# Enable Nginx site
-sudo ln -s /etc/nginx/sites-available/agent-platform /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
+# Set DATABASE_URL
+DATABASE_URL="postgresql://postgres:password@localhost:5432/agent_platform"
 ```
 
 ---
 
 ## 🔒 Environment Variables
 
-### Frontend (.env)
+### Production Environment Variables
 
+**Frontend (automatically handled in Vercel full-stack):**
 ```env
-VITE_API_URL=http://localhost:3001
+VITE_API_URL=/api  # Uses same domain in full-stack deployment
 ```
 
-### Backend (server/.env)
-
+**Backend (required):**
 ```env
-# Database
-DATABASE_URL=postgresql://user:password@localhost:5432/agent_platform
-
-# JWT
-JWT_SECRET=your-super-secret-jwt-key-change-this
-
-# Server
-PORT=3001
 NODE_ENV=production
+DATABASE_URL=postgresql://user:pass@host:port/db
+JWT_SECRET=your-super-secret-jwt-key-min-32-chars
+PORT=3001
 
-# Email (optional)
+# Optional
+UPLOAD_MAX_SIZE=10485760
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=your-email@gmail.com
 SMTP_PASS=your-app-password
-
-# File Upload (optional)
-MAX_FILE_SIZE=10485760
-UPLOAD_DIR=./uploads
-
-# Dify API (optional)
-DIFY_API_KEY=your-dify-api-key
-DIFY_API_URL=https://api.dify.ai/v1
 ```
 
----
+### Security Notes
 
-## 📊 Database Setup
-
-### PostgreSQL on Railway
-
-1. Create PostgreSQL database on Railway
-2. Copy the `DATABASE_URL` connection string
-3. Add to backend environment variables
-4. Run Prisma migrations:
-
-```bash
-cd server
-npx prisma migrate deploy
-npx prisma generate
-```
-
-### PostgreSQL on Render
-
-1. Create PostgreSQL database on Render
-2. Copy the connection string (External URL)
-3. Add to backend environment variables
-4. Run migrations (same as above)
+- Use a strong `JWT_SECRET` (at least 32 characters)
+- Never commit `.env` files to Git
+- Use different secrets for development and production
+- Rotate secrets regularly in production
 
 ---
 
 ## ✅ Post-Deployment Checklist
 
-- [ ] Frontend is accessible via HTTPS
-- [ ] Backend API is responding
-- [ ] Database connection is working
-- [ ] Environment variables are set correctly
-- [ ] CORS is configured properly
-- [ ] File uploads are working (if enabled)
-- [ ] Email notifications work (if enabled)
-- [ ] SSL certificate is installed
-- [ ] Domain is configured correctly
-- [ ] Monitoring is set up (optional)
+- [ ] Frontend loads correctly
+- [ ] API health check responds: `/health`
+- [ ] Database connection works
+- [ ] User registration/login works
+- [ ] File uploads work (if enabled)
+- [ ] Email notifications work (if configured)
+- [ ] HTTPS is enabled
+- [ ] Environment variables are secure
+- [ ] Error monitoring is set up (optional)
 
 ---
 
 ## 🐛 Troubleshooting
 
-### Frontend Issues
+### Common Issues
 
-**Build fails:**
-- Check Node.js version (18+)
-- Clear cache: `rm -rf node_modules && pnpm install`
-- Check for syntax errors in components
+**Build Failures:**
+```bash
+# Clear dependencies and reinstall
+rm -rf node_modules pnpm-lock.yaml
+pnpm install
+rm -rf server/node_modules server/package-lock.json
+cd server && npm install
+```
 
-**Blank page after deployment:**
-- Check browser console for errors
-- Verify `base` path in `vite.config.js`
-- Check API URL in environment variables
+**Database Connection Issues:**
+```bash
+# Test connection
+cd server
+node -e "const { PrismaClient } = require('@prisma/client'); const prisma = new PrismaClient(); prisma.$connect().then(() => console.log('Connected!')).catch(console.error)"
+```
 
-### Backend Issues
+**API Not Working:**
+- Check Vercel function logs in dashboard
+- Verify environment variables are set
+- Test API endpoints directly: `/api/health`
 
-**Database connection fails:**
-- Verify `DATABASE_URL` is correct
-- Check database is running
-- Run migrations: `npx prisma migrate deploy`
+**CORS Errors:**
+- Update `server/index.js` CORS configuration
+- Add your domain to allowed origins
 
-**API not responding:**
-- Check server logs
-- Verify PORT environment variable
-- Check firewall settings
+### Debugging Tips
 
-**CORS errors:**
-- Update CORS configuration in `server/index.js`
-- Add frontend URL to allowed origins
+```bash
+# Check Vercel deployment logs
+vercel logs
+
+# Test API locally
+curl https://your-app.vercel.app/api/health
+
+# Check database connection
+cd server && npx prisma studio
+```
 
 ---
 
 ## 📚 Additional Resources
 
-- [Vite Deployment Guide](https://vitejs.dev/guide/static-deploy.html)
-- [Vercel Documentation](https://vercel.com/docs)
-- [Railway Documentation](https://docs.railway.app/)
-- [Nginx Configuration](https://nginx.org/en/docs/)
+- [Vercel Full-Stack Guide](https://vercel.com/docs/concepts/functions/serverless-functions)
+- [Vercel Postgres Documentation](https://vercel.com/docs/storage/vercel-postgres)
+- [Prisma Deployment Guide](https://www.prisma.io/docs/guides/deployment)
+- [Express.js Best Practices](https://expressjs.com/en/advanced/best-practice-performance.html)
 
 ---
 
-**Need help?** Open an issue on GitHub!
+**Need help?** 
+- Check the [GitHub Issues](https://github.com/yourusername/agent-teaching-platform/issues)
+- Join our [Discord Community](https://discord.gg/your-invite)
+- Email support: support@yourapp.com
 

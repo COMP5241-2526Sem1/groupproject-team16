@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz API 测试页面</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .form-group { margin: 10px 0; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        .button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        .button:hover { background: #0056b3; }
+        .button:disabled { background: #ccc; cursor: not-allowed; }
+        .results { margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 4px; }
+        .question { margin: 10px 0; padding: 15px; background: white; border-radius: 4px; border: 1px solid #ddd; }
+        .error { color: red; background: #fee; padding: 10px; border-radius: 4px; margin: 10px 0; }
+        .success { color: green; background: #efe; padding: 10px; border-radius: 4px; margin: 10px 0; }
+        .loading { color: blue; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Quiz API 测试页面</h1>
+        
+        <form id="quizForm">
+            <div class="form-group">
+                <label for="topic">测验主题:</label>
+                <input type="text" id="topic" value="机器学习基础" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="count">题目数量:</label>
+                <input type="number" id="count" value="3" min="1" max="10" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="difficulty">难度:</label>
+                <select id="difficulty">
+                    <option value="简单">简单</option>
+                    <option value="中等" selected>中等</option>
+                    <option value="困难">困难</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="audience">目标受众:</label>
+                <select id="audience">
+                    <option value="高中生">高中生</option>
+                    <option value="大学生" selected>大学生</option>
+                    <option value="研究生">研究生</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="subjects">知识点 (可选):</label>
+                <textarea id="subjects" placeholder="例如: 监督学习,无监督学习"></textarea>
+            </div>
+            
+            <div class="form-group">
+                <label>题型选择:</label>
+                <div>
+                    <input type="checkbox" id="single" checked> <label for="single">单选题</label>
+                    <input type="checkbox" id="multiple"> <label for="multiple">多选题</label>
+                    <input type="checkbox" id="judge" checked> <label for="judge">判断题</label>
+                    <input type="checkbox" id="essay"> <label for="essay">简答题</label>
+                </div>
+            </div>
+            
+            <button type="submit" class="button" id="generateBtn">生成测验题目</button>
+        </form>
+        
+        <div id="results"></div>
+    </div>
+
+    <script>
+        document.getElementById('quizForm').addEventListener('submit', async (e) => {
+            e.preventDefault()
+            
+            const generateBtn = document.getElementById('generateBtn')
+            const resultsDiv = document.getElementById('results')
+            
+            // 收集表单数据
+            const formData = {
+                topic: document.getElementById('topic').value,
+                count: parseInt(document.getElementById('count').value),
+                difficulty: document.getElementById('difficulty').value,
+                audience: document.getElementById('audience').value,
+                subjects: document.getElementById('subjects').value,
+                questionTypes: []
+            }
+            
+            // 收集选中的题型
+            if (document.getElementById('single').checked) formData.questionTypes.push('single')
+            if (document.getElementById('multiple').checked) formData.questionTypes.push('multiple')
+            if (document.getElementById('judge').checked) formData.questionTypes.push('judge')
+            if (document.getElementById('essay').checked) formData.questionTypes.push('essay')
+            
+            if (formData.questionTypes.length === 0) {
+                resultsDiv.innerHTML = '<div class="error">请至少选择一种题型</div>'
+                return
+            }
+            
+            // 显示加载状态
+            generateBtn.disabled = true
+            generateBtn.textContent = '生成中...'
+            resultsDiv.innerHTML = '<div class="loading">正在生成测验题目...</div>'
+            
+            try {
+                console.log('🚀 发送请求:', formData)
+                
+                // 测试两种不同的API路径
+                const apiPaths = ['/api/agent/generate-quiz', 'http://localhost:3001/api/agent/generate-quiz']
+                let result = null
+                let successful = false
+                
+                for (const apiPath of apiPaths) {
+                    try {
+                        console.log(`🔗 尝试API路径: ${apiPath}`)
+                        
+                        const response = await fetch(apiPath, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify(formData)
+                        })
+                        
+                        console.log(`📡 响应状态: ${response.status} ${response.statusText}`)
+                        
+                        if (response.ok) {
+                            result = await response.json()
+                            successful = true
+                            console.log('✅ API调用成功:', result)
+                            break
+                        } else {
+                            const errorText = await response.text()
+                            console.error(`❌ API错误 (${apiPath}):`, errorText)
+                        }
+                    } catch (err) {
+                        console.error(`❌ 请求失败 (${apiPath}):`, err.message)
+                    }
+                }
+                
+                if (!successful) {
+                    throw new Error('所有API路径都失败了')
+                }
+                
+                // 显示结果
+                if (result.success && result.data) {
+                    let html = `<div class="success">✅ 成功生成 ${result.data.length} 道题目</div>`
+                    
+                    result.data.forEach((question, index) => {
+                        html += `
+                            <div class="question">
+                                <h3>题目 ${index + 1} (${question.type} - ${question.difficulty})</h3>
+                                <p><strong>题目:</strong> ${question.question}</p>
+                                
+                                ${question.options && question.options.length > 0 ? `
+                                    <p><strong>选项:</strong></p>
+                                    <ul>
+                                        ${question.options.map((option, i) => `<li>${String.fromCharCode(65 + i)}. ${option}</li>`).join('')}
+                                    </ul>
+                                ` : ''}
+                                
+                                <p><strong>正确答案:</strong> ${Array.isArray(question.correctAnswer) ? question.correctAnswer.join(', ') : question.correctAnswer}</p>
+                                <p><strong>解析:</strong> ${question.explanation}</p>
+                                <p><strong>分值:</strong> ${question.score}分 | <strong>预计时长:</strong> ${question.estimatedTime}分钟</p>
+                            </div>
+                        `
+                    })
+                    
+                    resultsDiv.innerHTML = html
+                } else {
+                    resultsDiv.innerHTML = '<div class="error">API返回数据格式错误</div>'
+                }
+                
+            } catch (error) {
+                console.error('❌ 生成失败:', error)
+                resultsDiv.innerHTML = `<div class="error">生成失败: ${error.message}</div>`
+            } finally {
+                generateBtn.disabled = false
+                generateBtn.textContent = '生成测验题目'
+            }
+        })
+    </script>
+</body>
+</html>

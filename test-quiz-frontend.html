@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz AI生成功能测试</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .test-item { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 8px; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        .loading { background-color: #e2e3e5; border-color: #c6c8ca; }
+        button { padding: 10px 20px; margin: 5px; border: none; border-radius: 4px; cursor: pointer; }
+        .btn-primary { background-color: #007bff; color: white; }
+        .btn-secondary { background-color: #6c757d; color: white; }
+        pre { background-color: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto; }
+        .question-item { margin: 10px 0; padding: 10px; background-color: #f8f9fa; border-radius: 4px; }
+        .correct-answer { color: #28a745; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Quiz AI生成功能测试</h1>
+        <p>测试前端是否能正确解析和展示AI生成的测验题目</p>
+
+        <div class="test-item">
+            <h3>测试1: 基础API调用</h3>
+            <button class="btn-primary" onclick="testBasicAPI()">测试基础API</button>
+            <div id="test1-result"></div>
+        </div>
+
+        <div class="test-item">
+            <h3>测试2: 数据格式转换</h3>
+            <button class="btn-primary" onclick="testDataFormat()">测试数据转换</button>
+            <div id="test2-result"></div>
+        </div>
+
+        <div class="test-item">
+            <h3>测试3: 题目展示</h3>
+            <button class="btn-primary" onclick="testQuestionDisplay()">测试题目展示</button>
+            <div id="test3-result"></div>
+        </div>
+
+        <div class="test-item">
+            <h3>测试4: 完整流程</h3>
+            <button class="btn-primary" onclick="testFullFlow()">测试完整流程</button>
+            <div id="test4-result"></div>
+        </div>
+    </div>
+
+    <script>
+        // 模拟前端数据格式转换逻辑
+        function mapQuestionType(apiType) {
+            const typeMap = {
+                'SINGLE_CHOICE': 'single',
+                'MULTIPLE_CHOICE': 'multiple', 
+                'TRUE_FALSE': 'judge',
+                'ESSAY': 'essay',
+                'single': 'single',
+                'multiple': 'multiple',
+                'judge': 'judge',
+                'essay': 'essay'
+            }
+            return typeMap[apiType] || 'single'
+        }
+
+        function formatQuestions(apiData, topic = '测试主题') {
+            return apiData.map((q, index) => {
+                // 转换正确答案格式
+                let correctAnswer = q.correctAnswer
+                
+                if (q.type === 'SINGLE_CHOICE') {
+                    if (typeof correctAnswer === 'string') {
+                        const letterToIndex = { 'A': 0, 'B': 1, 'C': 2, 'D': 3, 'E': 4, 'F': 5 }
+                        correctAnswer = letterToIndex[correctAnswer.toUpperCase()] || 0
+                    }
+                } else if (q.type === 'MULTIPLE_CHOICE') {
+                    if (typeof correctAnswer === 'string') {
+                        correctAnswer = correctAnswer.split(',').map(letter => {
+                            const letterToIndex = { 'A': 0, 'B': 1, 'C': 2, 'D': 3, 'E': 4, 'F': 5 }
+                            return letterToIndex[letter.trim().toUpperCase()] || 0
+                        })
+                    } else if (!Array.isArray(correctAnswer)) {
+                        correctAnswer = [0]
+                    }
+                } else if (q.type === 'TRUE_FALSE') {
+                    if (typeof correctAnswer === 'string') {
+                        correctAnswer = correctAnswer.toLowerCase() === 'true' || correctAnswer === '正确'
+                    }
+                }
+
+                return {
+                    id: q.id || `q_${Date.now()}_${index}`,
+                    type: mapQuestionType(q.type),
+                    question: q.question || `题目 ${index + 1}`,
+                    options: Array.isArray(q.options) ? q.options : [],
+                    correctAnswer: correctAnswer,
+                    explanation: q.explanation || `这是关于"${topic}"的题目解析。`,
+                    score: typeof q.score === 'number' ? q.score : 10,
+                    difficulty: q.difficulty || '中等',
+                    knowledgePoints: Array.isArray(q.knowledgePoints) ? q.knowledgePoints : [`${topic}相关知识点`],
+                    cognitiveLevel: q.cognitiveLevel || '理解',
+                    estimatedTime: typeof q.estimatedTime === 'number' ? q.estimatedTime : 2
+                }
+            })
+        }
+
+        async function testBasicAPI() {
+            const resultDiv = document.getElementById('test1-result')
+            resultDiv.innerHTML = '<div class="loading">测试中...</div>'
+
+            try {
+                const response = await fetch('/api/agent/generate-quiz', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        topic: '机器学习基础',
+                        count: 2,
+                        difficulty: '中等',
+                        questionTypes: ['single', 'judge']
+                    })
+                })
+
+                const result = await response.json()
+                
+                if (result.success && result.data) {
+                    resultDiv.innerHTML = `
+                        <div class="success">
+                            <h4>✅ API调用成功</h4>
+                            <p>返回 ${result.data.length} 道题目</p>
+                            <pre>${JSON.stringify(result, null, 2)}</pre>
+                        </div>
+                    `
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="error">
+                            <h4>❌ API调用失败</h4>
+                            <p>错误: ${result.message || '未知错误'}</p>
+                            <pre>${JSON.stringify(result, null, 2)}</pre>
+                        </div>
+                    `
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="error">
+                        <h4>❌ 网络错误</h4>
+                        <p>${error.message}</p>
+                    </div>
+                `
+            }
+        }
+
+        async function testDataFormat() {
+            const resultDiv = document.getElementById('test2-result')
+            resultDiv.innerHTML = '<div class="loading">测试中...</div>'
+
+            // 模拟API返回的数据
+            const sampleApiData = [
+                {
+                    "id": "q1",
+                    "type": "SINGLE_CHOICE",
+                    "question": "机器学习中哪个算法属于监督学习？",
+                    "options": ["K-means", "线性回归", "DBSCAN", "主成分分析"],
+                    "correctAnswer": "B",
+                    "explanation": "线性回归是典型的监督学习算法。",
+                    "difficulty": "中等",
+                    "knowledgePoints": ["监督学习", "回归算法"],
+                    "cognitiveLevel": "理解",
+                    "estimatedTime": 2,
+                    "score": 10
+                },
+                {
+                    "id": "q2",
+                    "type": "TRUE_FALSE",
+                    "question": "深度学习是机器学习的一个子领域。",
+                    "options": ["正确", "错误"],
+                    "correctAnswer": true,
+                    "explanation": "深度学习确实是机器学习的重要分支。",
+                    "difficulty": "中等",
+                    "knowledgePoints": ["深度学习", "机器学习"],
+                    "cognitiveLevel": "记忆",
+                    "estimatedTime": 1,
+                    "score": 8
+                }
+            ]
+
+            try {
+                const formattedQuestions = formatQuestions(sampleApiData, '机器学习基础')
+                
+                resultDiv.innerHTML = `
+                    <div class="success">
+                        <h4>✅ 数据格式转换成功</h4>
+                        <h5>原始数据:</h5>
+                        <pre>${JSON.stringify(sampleApiData, null, 2)}</pre>
+                        <h5>转换后数据:</h5>
+                        <pre>${JSON.stringify(formattedQuestions, null, 2)}</pre>
+                    </div>
+                `
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="error">
+                        <h4>❌ 数据格式转换失败</h4>
+                        <p>${error.message}</p>
+                    </div>
+                `
+            }
+        }
+
+        async function testQuestionDisplay() {
+            const resultDiv = document.getElementById('test3-result')
+            resultDiv.innerHTML = '<div class="loading">测试中...</div>'
+
+            const sampleApiData = [
+                {
+                    "id": "q1",
+                    "type": "SINGLE_CHOICE",
+                    "question": "机器学习中哪个算法属于监督学习？",
+                    "options": ["K-means", "线性回归", "DBSCAN", "主成分分析"],
+                    "correctAnswer": "B",
+                    "explanation": "线性回归是典型的监督学习算法。",
+                    "difficulty": "中等",
+                    "score": 10
+                }
+            ]
+
+            try {
+                const formattedQuestions = formatQuestions(sampleApiData, '机器学习基础')
+                const question = formattedQuestions[0]
+                
+                let displayHtml = `
+                    <div class="success">
+                        <h4>✅ 题目展示效果</h4>
+                        <div class="question-item">
+                            <h5>题目 1 (${question.type === 'single' ? '单选题' : question.type === 'multiple' ? '多选题' : '判断题'}) - ${question.score}分</h5>
+                            <p><strong>问题:</strong> ${question.question}</p>
+                            <p><strong>选项:</strong></p>
+                            <ul>
+                `
+
+                question.options.forEach((option, index) => {
+                    const isCorrect = question.correctAnswer === index
+                    displayHtml += `<li>${String.fromCharCode(65 + index)}. ${option} ${isCorrect ? '<span class="correct-answer">(正确答案)</span>' : ''}</li>`
+                })
+
+                displayHtml += `
+                            </ul>
+                            <p><strong>解析:</strong> ${question.explanation}</p>
+                            <p><strong>难度:</strong> ${question.difficulty}</p>
+                            <p><strong>预计时间:</strong> ${question.estimatedTime}分钟</p>
+                        </div>
+                    </div>
+                `
+
+                resultDiv.innerHTML = displayHtml
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="error">
+                        <h4>❌ 题目展示失败</h4>
+                        <p>${error.message}</p>
+                    </div>
+                `
+            }
+        }
+
+        async function testFullFlow() {
+            const resultDiv = document.getElementById('test4-result')
+            resultDiv.innerHTML = '<div class="loading">测试完整流程...</div>'
+
+            try {
+                // 步骤1: 调用API
+                const response = await fetch('/api/agent/generate-quiz', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        topic: '数据结构',
+                        count: 3,
+                        difficulty: '中等',
+                        audience: '大学生',
+                        questionTypes: ['single', 'judge']
+                    })
+                })
+
+                const result = await response.json()
+                
+                if (!result.success || !result.data) {
+                    throw new Error(`API调用失败: ${result.message}`)
+                }
+
+                // 步骤2: 格式化数据
+                const formattedQuestions = formatQuestions(result.data, '数据结构')
+
+                // 步骤3: 生成展示HTML
+                let displayHtml = `
+                    <div class="success">
+                        <h4>✅ 完整流程测试成功</h4>
+                        <p>成功生成 ${formattedQuestions.length} 道题目</p>
+                        <h5>题目预览:</h5>
+                `
+
+                formattedQuestions.forEach((question, index) => {
+                    displayHtml += `
+                        <div class="question-item">
+                            <h6>题目 ${index + 1} (${question.type === 'single' ? '单选题' : question.type === 'judge' ? '判断题' : question.type}) - ${question.score}分</h6>
+                            <p><strong>问题:</strong> ${question.question}</p>
+                    `
+
+                    if (question.type === 'single' && question.options) {
+                        displayHtml += '<p><strong>选项:</strong></p><ul>'
+                        question.options.forEach((option, optIndex) => {
+                            const isCorrect = question.correctAnswer === optIndex
+                            displayHtml += `<li>${String.fromCharCode(65 + optIndex)}. ${option} ${isCorrect ? '<span class="correct-answer">(正确答案)</span>' : ''}</li>`
+                        })
+                        displayHtml += '</ul>'
+                    } else if (question.type === 'judge') {
+                        displayHtml += `<p><strong>正确答案:</strong> <span class="correct-answer">${question.correctAnswer ? '正确' : '错误'}</span></p>`
+                    }
+
+                    displayHtml += `
+                            <p><strong>解析:</strong> ${question.explanation}</p>
+                            <p><strong>难度:</strong> ${question.difficulty} | <strong>时间:</strong> ${question.estimatedTime}分钟</p>
+                        </div>
+                    `
+                })
+
+                displayHtml += '</div>'
+                resultDiv.innerHTML = displayHtml
+
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="error">
+                        <h4>❌ 完整流程测试失败</h4>
+                        <p>${error.message}</p>
+                    </div>
+                `
+            }
+        }
+    </script>
+</body>
+</html>

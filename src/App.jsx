@@ -19,7 +19,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Bell,
-  Search
+  Search,
+  Bot
 } from 'lucide-react'
 import './App.css'
 import Dashboard from './components/Dashboard'
@@ -31,7 +32,9 @@ import ResourceModule from './components/ResourceModule'
 import VoteModule from './components/VoteModule'
 import DataAnalysis from './components/DataAnalysis'
 import AgentGenerator from './components/AgentGenerator'
+import AIChat from './components/AIChat'
 import Login from './components/Login'
+import TestQuizDataFormat from './components/TestQuizDataFormat'
 
 // NavHead - 顶部导航栏组件
 function NavHead({ currentCourse, user, onLogout }) {
@@ -99,9 +102,10 @@ function LeftAside({ collapsed, onToggle }) {
     { path: '/course/homework', icon: FileText, label: 'Homework' },
     { path: '/course/quiz', icon: CheckSquare, label: 'Quiz' },
     { path: '/course/resources', icon: FolderOpen, label: 'Resources' },
-    { path: '/course/vote', icon: Vote, label: 'Polls' },
-    { path: '/course/analytics', icon: BarChart3, label: 'Analytics' },
+        { path: '/course/vote', icon: Vote, label: 'Poll & Vote' },
+    { path: '/course/analytics', icon: BarChart3, label: 'Data Analytics' },
     { path: '/course/agent', icon: Brain, label: 'AI Generator' },
+    { path: '/course/ai-chat', icon: Bot, label: 'AI Assistant' },
   ]
 
   return (
@@ -246,6 +250,8 @@ function AppContent() {
               <Route path="/course/vote" element={<VoteModule />} />
               <Route path="/course/analytics" element={<DataAnalysis />} />
               <Route path="/course/agent" element={<AgentGenerator />} />
+              <Route path="/course/ai-chat" element={<AIChat />} />
+              <Route path="/test-quiz" element={<TestQuizDataFormat />} />
             </Routes>
           </div>
         </main>
