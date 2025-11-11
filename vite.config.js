@@ -11,4 +11,14 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  server: {
+    // 开发环境代理配置：将 /api 请求转发到后端服务器
+    // 这样前端可以使用相对路径 /api/... 来调用后端 API
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+    },
+  },
 })

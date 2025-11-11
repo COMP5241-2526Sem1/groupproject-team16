@@ -19,7 +19,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Bell,
-  Search
+  Search,
+  Bot
 } from 'lucide-react'
 import './App.css'
 import Dashboard from './components/Dashboard'
@@ -31,6 +32,7 @@ import ResourceModule from './components/ResourceModule'
 import VoteModule from './components/VoteModule'
 import DataAnalysis from './components/DataAnalysis'
 import AgentGenerator from './components/AgentGenerator'
+import AIChat from './components/AIChat'
 import Login from './components/Login'
 import HealthIndicator from './components/HealthIndicator.jsx'
 
@@ -99,11 +101,12 @@ function LeftAside({ collapsed, onToggle }) {
     { path: '/course/overview', icon: Home, label: 'Overview' },
     { path: '/course/discussion', icon: MessageSquare, label: 'Discussion' },
     { path: '/course/homework', icon: FileText, label: 'Homework' },
-    { path: '/course/quiz', icon: CheckSquare, label: 'Quiz' },
+    { path: '/course/quiz', icon: CheckSquare, label: 'AI Quiz' },
     { path: '/course/resources', icon: FolderOpen, label: 'Resources' },
     { path: '/course/vote', icon: Vote, label: 'Polls' },
     { path: '/course/analytics', icon: BarChart3, label: 'Analytics' },
-    { path: '/course/agent', icon: Brain, label: 'AI Generator' },
+    { path: '/course/agent', icon: Brain, label: 'AI Course' },
+    { path: '/course/ai-chat', icon: Bot, label: 'AI Chat' },
   ]
 
   return (
@@ -248,6 +251,7 @@ function AppContent() {
               <Route path="/course/vote" element={<VoteModule />} />
               <Route path="/course/analytics" element={<DataAnalysis />} />
               <Route path="/course/agent" element={<AgentGenerator />} />
+              <Route path="/course/ai-chat" element={<AIChat />} />
             </Routes>
           </div>
         </main>
