@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>测验提交测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .question {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+        input[type="radio"] {
+            margin-right: 5px;
+        }
+        label {
+            margin-right: 15px;
+        }
+    </style>
+</head>
+<body>
+    <h1>测验提交测试页面</h1>
+    
+    <div id="quiz-content">
+        <div class="question">
+            <h3>1. 单选题测试</h3>
+            <label><input type="radio" name="q1" value="0"> 选项A</label>
+            <label><input type="radio" name="q1" value="1"> 选项B</label>
+            <label><input type="radio" name="q1" value="2"> 选项C</label>
+        </div>
+
+        <div class="question">
+            <h3>2. 判断题测试</h3>
+            <label><input type="radio" name="q2" value="true"> 正确</label>
+            <label><input type="radio" name="q2" value="false"> 错误</label>
+        </div>
+
+        <button onclick="submitQuiz()">提交测验</button>
+    </div>
+
+    <div id="result" class="result" style="display: none;"></div>
+
+    <script>
+        async function submitQuiz() {
+            const API_BASE = 'http://localhost:3001/api';
+            const quizId = '08551965-be4a-4a75-9dfd-294ff5dab7c0';
+            
+            // 获取答案
+            const answers = {};
+            
+            // 单选题（假设questionId）
+            const q1Value = document.querySelector('input[name="q1"]:checked')?.value;
+            if (q1Value !== undefined) {
+                answers['92e69e17-cc72-4118-acea-80d24edcecab'] = parseInt(q1Value);
+            }
+            
+            // 判断题（假设questionId）
+            const q2Value = document.querySelector('input[name="q2"]:checked')?.value;
+            if (q2Value !== undefined) {
+                answers['66dbe7a3-b1ba-4c72-bd07-9ec527b96352'] = q2Value === 'true';
+            }
+
+            console.log('提交答案:', answers);
+
+            try {
+                // 先登录
+                const loginResponse = await fetch(`${API_BASE}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: 'student1@example.com',
+                        password: 'password123'
+                    })
+                });
+
+                const loginResult = await loginResponse.json();
+                const token = loginResult.token;
+
+                console.log('登录成功，token:', token);
+
+                // 提交测验
+                const submitResponse = await fetch(`${API_BASE}/quiz/${quizId}/submit`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ answers })
+                });
+
+                console.log('响应状态:', submitResponse.status);
+
+                const result = await submitResponse.json();
+                console.log('提交结果:', result);
+
+                // 显示结果
+                const resultDiv = document.getElementById('result');
+                resultDiv.style.display = 'block';
+                resultDiv.innerHTML = `
+                    <h2>提交成功！</h2>
+                    <p>得分: ${result.data.score} / ${result.data.totalScore}</p>
+                    <p>是否通过: ${result.data.passed ? '✅ 通过' : '❌ 未通过'}</p>
+                    <pre>${JSON.stringify(result, null, 2)}</pre>
+                `;
+            } catch (error) {
+                console.error('提交失败:', error);
+                alert('提交失败: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>

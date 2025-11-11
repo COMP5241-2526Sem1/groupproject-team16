@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { GraduationCap, Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { getApiUrl } from '@/config/api';
 
 export default function Login({ onLogin }) {
   const [isLogin, setIsLogin] = useState(true);
@@ -19,25 +20,42 @@ export default function Login({ onLogin }) {
     setLoading(true);
 
     try {
-      // 模拟登录/注册
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const endpoint = isLogin ? '/auth/login' : '/auth/register';
+      const payload = isLogin 
+        ? { email: formData.email, password: formData.password }
+        : { email: formData.email, password: formData.password, name: formData.name, role: formData.role };
 
-      // 创建用户对象
-      const user = {
-        id: '1',
-        email: formData.email,
-        name: formData.name || formData.email.split('@')[0],
-        role: formData.role,
-        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${formData.email}`
-      };
+      console.log('🔐 提交登录/注册:', endpoint, payload);
 
-      // 保存到localStorage
-      localStorage.setItem('user', JSON.stringify(user));
-      localStorage.setItem('token', 'mock-jwt-token-' + Date.now());
+      const response = await fetch(getApiUrl(endpoint), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
 
-      // 调用登录回调
-      onLogin(user);
+      const result = await response.json();
+      console.log('📨 登录响应:', result);
+
+      if (!response.ok) {
+        throw new Error(result.error || result.message || '操作失败');
+      }
+
+      if (result.token && result.user) {
+        // 保存token和用户信息到localStorage
+        localStorage.setItem('token', result.token);
+        localStorage.setItem('user', JSON.stringify(result.user));
+
+        console.log('✅ 登录成功, Token已保存');
+
+        // 调用登录回调
+        onLogin(result.user);
+      } else {
+        throw new Error('服务器返回数据格式错误');
+      }
     } catch (err) {
+      console.error('❌ 登录失败:', err);
       setError(err.message || '登录失败,请重试');
     } finally {
       setLoading(false);
@@ -51,35 +69,87 @@ export default function Login({ onLogin }) {
     });
   };
 
-  // 快速登录
-  const quickLogin = (role) => {
-    const demoUsers = {
-      TEACHER: {
-        email: 'teacher@example.com',
-        name: 'Prof. Zhang',
-        role: 'TEACHER'
-      },
-      STUDENT: {
-        email: 'student@example.com',
-        name: 'Li Ming',
-        role: 'STUDENT'
-      },
-      ADMIN: {
-        email: 'admin@example.com',
-        name: 'Administrator',
-        role: 'ADMIN'
+  // 快速登录 - 使用真实API
+  const quickLogin = async (role) => {
+    setLoading(true);
+    setError('');
+    
+    try {
+      const demoUsers = {
+        TEACHER: {
+          email: 'teacher@example.com',
+          password: 'password123',
+          name: 'Prof. Zhang',
+          role: 'TEACHER'
+        },
+        STUDENT: {
+          email: 'student@example.com',
+          password: 'password123',
+          name: 'Li Ming',
+          role: 'STUDENT'
+        },
+        ADMIN: {
+          email: 'admin@example.com',
+          password: 'password123',
+          name: 'Administrator',
+          role: 'ADMIN'
+        }
+      };
+
+      const demoUser = demoUsers[role];
+      
+      console.log('🚀 快速登录尝试:', demoUser.email);
+
+      // 先尝试登录
+      let response = await fetch(getApiUrl('/auth/login'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: demoUser.email,
+          password: demoUser.password
+        })
+      });
+
+      let result = await response.json();
+
+      // 如果登录失败(用户不存在)，则先注册
+      if (!response.ok) {
+        console.log('⚠️ 用户不存在，尝试注册...');
+        
+        response = await fetch(getApiUrl('/auth/register'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(demoUser)
+        });
+
+        result = await response.json();
       }
-    };
 
-    const user = {
-      id: role.toLowerCase(),
-      ...demoUsers[role],
-      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${role}`
-    };
+      if (!response.ok) {
+        throw new Error(result.error || result.message || '快速登录失败');
+      }
 
-    localStorage.setItem('user', JSON.stringify(user));
-    localStorage.setItem('token', 'mock-jwt-token-' + Date.now());
-    onLogin(user);
+      if (result.token && result.user) {
+        // 保存token和用户信息
+        localStorage.setItem('token', result.token);
+        localStorage.setItem('user', JSON.stringify(result.user));
+
+        console.log('✅ 快速登录成功');
+
+        onLogin(result.user);
+      } else {
+        throw new Error('服务器返回数据格式错误');
+      }
+    } catch (err) {
+      console.error('❌ 快速登录失败:', err);
+      setError(err.message || '快速登录失败,请重试');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
