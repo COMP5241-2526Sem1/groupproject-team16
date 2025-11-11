@@ -30,6 +30,7 @@ const voteRoutes = require('./routes/vote');
 const analyticsRoutes = require('./routes/analytics');
 const agentRoutes = require('./routes/agent');
 const uploadRoutes = require('./routes/upload');
+const aiRoutes = require('./routes/ai');
 
 // API路由
 app.use('/api/auth', authRoutes);
@@ -42,6 +43,7 @@ app.use('/api/vote', voteRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/ai', aiRoutes);
 
 // 健康检查（包含数据库连通性）
 app.get('/health', async (req, res) => {
