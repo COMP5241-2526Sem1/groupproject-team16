@@ -35,7 +35,15 @@ router.post('/generate-course', async (req, res) => {
     console.log('处理后的参数:', JSON.stringify(params, null, 2));
     console.log('开始调用agentService.generateCourseContent...');
 
-    const result = await agentService.generateCourseContent(params);
+    // Add timeout protection (55 seconds to stay within Vercel's 60s limit)
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Request timeout - AI service took too long to respond. Please try again with simpler parameters.')), 55000)
+    );
+    
+    const result = await Promise.race([
+      agentService.generateCourseContent(params),
+      timeoutPromise
+    ]);
 
     // 打印返回结果
     const endTime = Date.now();
@@ -101,7 +109,15 @@ router.post('/generate-quiz', async (req, res) => {
     console.log('处理后的参数:', JSON.stringify(params, null, 2));
     console.log('开始调用agentService.generateQuizQuestions...');
 
-    const result = await agentService.generateQuizQuestions(params);
+    // Add timeout protection (55 seconds to stay within Vercel's 60s limit)
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Request timeout - AI service took too long to respond. Please try again with fewer questions or simpler parameters.')), 55000)
+    );
+    
+    const result = await Promise.race([
+      agentService.generateQuizQuestions(params),
+      timeoutPromise
+    ]);
 
     // 打印返回结果
     const endTime = Date.now();

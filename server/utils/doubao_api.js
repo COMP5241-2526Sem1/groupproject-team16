@@ -3,6 +3,8 @@ const OpenAI = require('openai');
 const openai = new OpenAI({
   apiKey: process.env.DOUBAO_API_KEY || "804d1fe1-4b03-4483-9220-ccdfbffbeffd",
   baseURL: process.env.DOUBAO_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3',
+  timeout: 50000, // 50 seconds timeout to stay within Vercel's 60s limit
+  maxRetries: 0, // Disable retries to prevent additional delays
 });
 
 /**
