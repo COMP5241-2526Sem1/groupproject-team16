@@ -1,0 +1,241 @@
+// Prisma Schema for Agent Teaching Management System
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 用户表
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      Role     @default(STUDENT)
+  avatar    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // 关系
+  teachingCourses Course[]            @relation("TeacherCourses")
+  enrolledCourses CourseStudent[]
+  discussions     DiscussionPost[]
+  homeworkSubmissions HomeworkSubmission[]
+  quizSubmissions QuizSubmission[]
+  voteResults     VoteResult[]
+
+  @@map("users")
+}
+
+enum Role {
+  ADMIN
+  TEACHER
+  STUDENT
+}
+
+// 课程表
+model Course {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  teacherId   String
+  startDate   DateTime?
+  status      CourseStatus @default(ACTIVE)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // 关系
+  teacher     User              @relation("TeacherCourses", fields: [teacherId], references: [id])
+  students    CourseStudent[]
+  discussions DiscussionPost[]
+  homeworks   Homework[]
+  quizzes     Quiz[]
+  resources   CourseResource[]
+  votes       Vote[]
+
+  @@map("courses")
+}
+
+enum CourseStatus {
+  ACTIVE
+  UPCOMING
+  COMPLETED
+}
+
+// 课程学生关联表
+model CourseStudent {
+  id        String   @id @default(uuid())
+  courseId  String
+  studentId String
+  enrolledAt DateTime @default(now())
+
+  course  Course @relation(fields: [courseId], references: [id])
+  student User   @relation(fields: [studentId], references: [id])
+
+  @@unique([courseId, studentId])
+  @@map("course_students")
+}
+
+// 讨论帖子表
+model DiscussionPost {
+  id        String   @id @default(uuid())
+  courseId  String
+  userId    String
+  title     String
+  content   String
+  parentId  String?
+  isPinned  Boolean  @default(false)
+  likes     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  course  Course            @relation(fields: [courseId], references: [id])
+  user    User              @relation(fields: [userId], references: [id])
+  parent  DiscussionPost?   @relation("DiscussionReplies", fields: [parentId], references: [id])
+  replies DiscussionPost[]  @relation("DiscussionReplies")
+
+  @@map("discussion_posts")
+}
+
+// 作业表
+model Homework {
+  id          String   @id @default(uuid())
+  courseId    String
+  title       String
+  description String?
+  deadline    DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  course      Course               @relation(fields: [courseId], references: [id])
+  submissions HomeworkSubmission[]
+
+  @@map("homeworks")
+}
+
+// 作业提交表
+model HomeworkSubmission {
+  id         String   @id @default(uuid())
+  homeworkId String
+  studentId  String
+  fileUrl    String
+  note       String?
+  score      Float?
+  submittedAt DateTime @default(now())
+
+  homework Homework @relation(fields: [homeworkId], references: [id])
+  student  User     @relation(fields: [studentId], references: [id])
+
+  @@unique([homeworkId, studentId])
+  @@map("homework_submissions")
+}
+
+// Quiz测验表
+model Quiz {
+  id        String   @id @default(uuid())
+  courseId  String
+  title     String
+  duration  Int      // 分钟
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  course      Course          @relation(fields: [courseId], references: [id])
+  questions   QuizQuestion[]
+  submissions QuizSubmission[]
+
+  @@map("quizzes")
+}
+
+// Quiz题目表
+model QuizQuestion {
+  id       String       @id @default(uuid())
+  quizId   String
+  type     QuestionType
+  question String
+  options  Json?        // JSON array for multiple choice options
+  answer   String
+
+  quiz Quiz @relation(fields: [quizId], references: [id])
+
+  @@map("quiz_questions")
+}
+
+enum QuestionType {
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+  TRUE_FALSE
+  ESSAY
+}
+
+// Quiz提交表
+model QuizSubmission {
+  id        String   @id @default(uuid())
+  quizId    String
+  studentId String
+  answers   Json     // JSON object with question_id: answer pairs
+  score     Float?
+  submittedAt DateTime @default(now())
+
+  quiz    Quiz @relation(fields: [quizId], references: [id])
+  student User @relation(fields: [studentId], references: [id])
+
+  @@unique([quizId, studentId])
+  @@map("quiz_submissions")
+}
+
+// 课程资源表
+model CourseResource {
+  id        String   @id @default(uuid())
+  courseId  String
+  name      String
+  type      String   // pdf, video, ppt, doc, etc.
+  fileUrl   String
+  size      Int      // bytes
+  downloads Int      @default(0)
+  uploadedAt DateTime @default(now())
+
+  course Course @relation(fields: [courseId], references: [id])
+
+  @@map("course_resources")
+}
+
+// 投票表
+model Vote {
+  id        String   @id @default(uuid())
+  courseId  String
+  title     String
+  type      VoteType
+  options   Json     // JSON array of options
+  deadline  DateTime
+  createdAt DateTime @default(now())
+
+  course  Course       @relation(fields: [courseId], references: [id])
+  results VoteResult[]
+
+  @@map("votes")
+}
+
+enum VoteType {
+  SINGLE
+  MULTIPLE
+}
+
+// 投票结果表
+model VoteResult {
+  id              String   @id @default(uuid())
+  voteId          String
+  studentId       String
+  selectedOptions Json     // JSON array of selected option indices
+  submittedAt     DateTime @default(now())
+
+  vote    Vote @relation(fields: [voteId], references: [id])
+  student User @relation(fields: [studentId], references: [id])
+
+  @@unique([voteId, studentId])
+  @@map("vote_results")
+}
+
