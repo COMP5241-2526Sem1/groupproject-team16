@@ -3,12 +3,33 @@ const router = express.Router();
 const uploadMiddleware = require('../middleware/upload');
 const path = require('path');
 
+// 获取基础 URL（根据环境自动判断）
+function getBaseUrl(req) {
+  // 在 Vercel 环境中，使用请求的 host
+  if (process.env.VERCEL) {
+    const protocol = req.headers['x-forwarded-proto'] || 'https';
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    return `${protocol}://${host}`;
+  }
+  
+  // 使用环境变量（如果设置）
+  if (process.env.APP_URL) {
+    return process.env.APP_URL;
+  }
+  
+  // 本地开发环境
+  return `http://localhost:${process.env.PORT || 3001}`;
+}
+
 // 单文件上传
 router.post('/single', uploadMiddleware.single('file'), (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: '未选择文件' });
     }
+
+    const baseUrl = getBaseUrl(req);
+    const filePath = `/uploads/${path.basename(path.dirname(req.file.path))}/${req.file.filename}`;
 
     res.json({
       success: true,
@@ -18,8 +39,8 @@ router.post('/single', uploadMiddleware.single('file'), (req, res) => {
         originalname: req.file.originalname,
         mimetype: req.file.mimetype,
         size: req.file.size,
-        path: `/uploads/${path.basename(path.dirname(req.file.path))}/${req.file.filename}`,
-        url: `http://localhost:3001/uploads/${path.basename(path.dirname(req.file.path))}/${req.file.filename}`
+        path: filePath,
+        url: `${baseUrl}${filePath}`
       }
     });
   } catch (error) {
@@ -34,14 +55,18 @@ router.post('/multiple', uploadMiddleware.array('files', 10), (req, res) => {
       return res.status(400).json({ error: '未选择文件' });
     }
 
-    const files = req.files.map(file => ({
-      filename: file.filename,
-      originalname: file.originalname,
-      mimetype: file.mimetype,
-      size: file.size,
-      path: `/uploads/${path.basename(path.dirname(file.path))}/${file.filename}`,
-      url: `http://localhost:3001/uploads/${path.basename(path.dirname(file.path))}/${file.filename}`
-    }));
+    const baseUrl = getBaseUrl(req);
+    const files = req.files.map(file => {
+      const filePath = `/uploads/${path.basename(path.dirname(file.path))}/${file.filename}`;
+      return {
+        filename: file.filename,
+        originalname: file.originalname,
+        mimetype: file.mimetype,
+        size: file.size,
+        path: filePath,
+        url: `${baseUrl}${filePath}`
+      };
+    });
 
     res.json({
       success: true,
@@ -61,6 +86,8 @@ router.post('/homework', uploadMiddleware.single('homework'), (req, res) => {
     }
 
     const { studentId, homeworkId } = req.body;
+    const baseUrl = getBaseUrl(req);
+    const filePath = `/uploads/${path.basename(path.dirname(req.file.path))}/${req.file.filename}`;
 
     res.json({
       success: true,
@@ -72,7 +99,7 @@ router.post('/homework', uploadMiddleware.single('homework'), (req, res) => {
           filename: req.file.filename,
           originalname: req.file.originalname,
           size: req.file.size,
-          url: `http://localhost:3001/uploads/${path.basename(path.dirname(req.file.path))}/${req.file.filename}`
+          url: `${baseUrl}${filePath}`
         },
         submittedAt: new Date().toISOString()
       }
@@ -90,6 +117,8 @@ router.post('/resource', uploadMiddleware.single('resource'), (req, res) => {
     }
 
     const { courseId, name, description } = req.body;
+    const baseUrl = getBaseUrl(req);
+    const filePath = `/uploads/${path.basename(path.dirname(req.file.path))}/${req.file.filename}`;
 
     res.json({
       success: true,
@@ -100,7 +129,7 @@ router.post('/resource', uploadMiddleware.single('resource'), (req, res) => {
         description,
         type: req.file.mimetype,
         size: req.file.size,
-        url: `http://localhost:3001/uploads/${path.basename(path.dirname(req.file.path))}/${req.file.filename}`,
+        url: `${baseUrl}${filePath}`,
         uploadedAt: new Date().toISOString()
       }
     });

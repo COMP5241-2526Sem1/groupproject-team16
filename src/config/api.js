@@ -1,5 +1,9 @@
 // API 配置
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+// 在 Vercel 部署时使用相对路径，本地开发时使用完整 URL
+const isDev = import.meta.env.DEV;
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (
+  isDev ? 'http://localhost:3001/api' : '/api'
+);
 
 // 创建完整的 API URL
 export function getApiUrl(endpoint) {
