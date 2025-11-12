@@ -3,9 +3,17 @@ const path = require('path');
 const fs = require('fs');
 
 // 确保上传目录存在
-const uploadDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
+// 在 Vercel 等 serverless 环境中使用 /tmp 目录
+const isServerless = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME;
+const uploadDir = isServerless ? '/tmp/uploads' : path.join(__dirname, '../uploads');
+
+// 尝试创建上传目录
+try {
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
+} catch (error) {
+  console.warn('Unable to create upload directory:', error.message);
 }
 
 // 配置存储
@@ -25,11 +33,15 @@ const storage = multer.diskStorage({
     }
 
     const targetDir = path.join(uploadDir, subfolder);
-    if (!fs.existsSync(targetDir)) {
-      fs.mkdirSync(targetDir, { recursive: true });
+    try {
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+      }
+      cb(null, targetDir);
+    } catch (error) {
+      console.error('Error creating upload directory:', error);
+      cb(error);
     }
-
-    cb(null, targetDir);
   },
   filename: function (req, file, cb) {
     // 生成唯一文件名: timestamp-randomstring-originalname
