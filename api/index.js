@@ -14,7 +14,10 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // 静态文件服务 - 提供上传文件访问
-app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+// 在 serverless 环境中使用 /tmp 目录
+const isServerless = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT;
+const uploadsPath = isServerless ? '/tmp/uploads' : path.join(__dirname, '..', 'uploads');
+app.use('/uploads', express.static(uploadsPath));
 
 // 路由 - 使用相对于项目根目录的路径
 const authRoutes = require('../server/routes/auth');

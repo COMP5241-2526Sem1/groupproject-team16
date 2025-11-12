@@ -2,6 +2,9 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
+// Upload middleware for file handling
+// Last updated: 2025-11-12 12:20 UTC - Fixed serverless directory creation
+
 // 确保上传目录存在
 // 在 Vercel 等 serverless 环境中使用 /tmp 目录
 const isServerless = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT;
