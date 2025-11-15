@@ -76,7 +76,12 @@ const fileFilter = (req, file, cb) => {
     'application/vnd.ms-powerpoint',
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     'text/plain',
-    'application/zip'
+    'text/csv',
+    'application/zip',
+    'application/octet-stream', // 通用二进制文件类型
+    'application/x-zip-compressed',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
   ];
 
   if (allowedMimes.includes(file.mimetype)) {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx'
 import { Button } from '@/components/ui/button.jsx'
 import { Input } from '@/components/ui/input.jsx'
@@ -18,17 +18,46 @@ const HomeworkModule = () => {
   const [loading, setLoading] = useState(true)
   const [homeworks, setHomeworks] = useState([])
   const [formData, setFormData] = useState({ title: '', description: '', dueDate: '', totalScore: 100 })
+  const [uploadFile, setUploadFile] = useState(null)
+  const [uploading, setUploading] = useState(false)
+  const [currentCourse, setCurrentCourse] = useState(null)
+  const [gradingSubmission, setGradingSubmission] = useState(null)
+  const [isGradeDialogOpen, setIsGradeDialogOpen] = useState(false)
+  const [gradeData, setGradeData] = useState({ score: '', comment: '' })
+  const fileInputRef = useRef(null)
   const currentUser = getCurrentUser()
 
-  // 获取作业列表
+  useEffect(() => {
+    const saved = localStorage.getItem('selectedCourse')
+    if (saved) {
+      try {
+        setCurrentCourse(JSON.parse(saved))
+      } catch {}
+    }
+  }, [])
+
   useEffect(() => {
     fetchHomeworks()
   }, [])
 
+  // 调试：监听isGradeDialogOpen状态变化
+  useEffect(() => {
+    console.log('isGradeDialogOpen changed to:', isGradeDialogOpen)
+  }, [isGradeDialogOpen])
+
+  // 调试：监听gradingSubmission状态变化
+  useEffect(() => {
+    console.log('gradingSubmission changed to:', gradingSubmission)
+  }, [gradingSubmission])
+
   const fetchHomeworks = async () => {
     try {
       setLoading(true)
-      const { data } = await api.get('/homework')
+      const token = localStorage.getItem('token')
+      const saved = localStorage.getItem('selectedCourse')
+      const course = saved ? JSON.parse(saved) : null
+      const url = course?.id ? `/homework?courseId=${course.id}` : '/homework'
+      const { data } = await api.get(url, token ? { headers: { Authorization: `Bearer ${token}` } } : {})
       const list = (data?.data || []).map(hw => ({
         ...hw,
         dueDate: hw.dueDate ? new Date(hw.dueDate).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '',
@@ -48,9 +77,14 @@ const HomeworkModule = () => {
 
   const handleCreate = async () => {
     try {
+      if (!currentCourse?.id) {
+        alert('请先选择课程')
+        return
+      }
       const token = localStorage.getItem('token')
       const payload = {
         ...formData,
+        courseId: currentCourse.id,
         dueDate: new Date(formData.dueDate).toISOString(),
         totalScore: parseInt(formData.totalScore)
       }
@@ -76,7 +110,8 @@ const HomeworkModule = () => {
 
   const handleViewDetails = async (hw) => {
     try {
-      const { data } = await api.get(`/homework/${hw.id}`)
+      const token = localStorage.getItem('token')
+      const { data } = await api.get(`/homework/${hw.id}`, token ? { headers: { Authorization: `Bearer ${token}` } } : {})
       setSelectedHomework({
         ...data.data,
         dueDate: data.data.dueDate ? new Date(data.data.dueDate).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
@@ -91,27 +126,151 @@ const HomeworkModule = () => {
 
   const handleStartSubmit = () => setIsSubmitting(true)
 
-  const handleSubmit = async (files) => {
+  const handleSubmit = async () => {
+    if (!uploadFile) {
+      alert('请选择要上传的文件')
+      return
+    }
+    if (!currentCourse?.id) {
+      alert('请先选择课程')
+      return
+    }
+    
+    setUploading(true)
     try {
       const token = localStorage.getItem('token')
       const savedUser = localStorage.getItem('user')
       const user = savedUser ? JSON.parse(savedUser) : null
+      const studentId = user?.id
       
-      // 这里应该先上传文件，然后提交作业
-      // 简化处理：直接提交
+      if (!studentId) {
+        alert('无法获取学生ID')
+        return
+      }
+      
+      // 先上传文件到OSS
+      const formData = new FormData()
+      formData.append('homework', uploadFile)
+      formData.append('studentId', studentId)
+      formData.append('homeworkId', selectedHomework.id)
+      formData.append('courseId', currentCourse.id)
+      
+      const uploadRes = await api.post('/upload/homework', formData, {
+        headers: { 'Content-Type': 'multipart/form-data', Authorization: `Bearer ${token}` }
+      })
+      
+      // 然后提交作业记录
       await api.post(`/homework/${selectedHomework.id}/submit`, {
-        studentId: user?.id || 'student1',
-        studentName: user?.name || '学生',
-        files: files || [{ name: 'homework.zip', url: '/uploads/homework.zip' }],
+        ossPath: uploadRes.data.submission.file.ossPath,
+        fileUrl: uploadRes.data.submission.file.url,
         comment: ''
-      }, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      }, { headers: { Authorization: `Bearer ${token}` } })
       
       alert('作业提交成功!')
       setIsSubmitting(false)
+      setUploadFile(null)
+      if (fileInputRef.current) fileInputRef.current.value = ''
       await fetchHomeworks()
-      setSelectedHomework(null)
+      await handleViewDetails(selectedHomework)
     } catch (error) {
       alert('提交作业失败: ' + (error?.response?.data?.error || error.message))
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const handleDeleteSubmission = async (submissionId) => {
+    if (!confirm('确定要删除这个提交吗？删除后可以重新提交。')) return
+    try {
+      const token = localStorage.getItem('token')
+      await api.delete(`/homework/submissions/${submissionId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      alert('删除成功')
+      await handleViewDetails(selectedHomework)
+    } catch (error) {
+      alert('删除失败: ' + (error?.response?.data?.error || error.message))
+    }
+  }
+
+  const handleDownloadSubmission = (submission) => {
+    const baseURL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:3001/api' : '/api')
+    const downloadUrl = `${baseURL}/homework/submissions/${submission.id}/download`
+    const link = document.createElement('a')
+    link.href = downloadUrl
+    link.style.display = 'none'
+    document.body.appendChild(link)
+    link.click()
+    setTimeout(() => {
+      document.body.removeChild(link)
+    }, 100)
+  }
+
+  const handleGradeClick = (submission) => {
+    console.log('=== Grade button clicked ===')
+    console.log('Submission:', submission)
+    console.log('Selected homework:', selectedHomework)
+    if (!submission) {
+      console.error('Submission is null or undefined')
+      alert('提交信息错误，请刷新页面重试')
+      return
+    }
+    if (!selectedHomework) {
+      console.error('Selected homework is null or undefined')
+      alert('作业信息错误，请刷新页面重试')
+      return
+    }
+    try {
+      console.log('Setting gradingSubmission and gradeData...')
+      setGradingSubmission(submission)
+      setGradeData({ 
+        score: submission.score !== null && submission.score !== undefined ? String(submission.score) : '', 
+        comment: submission.comment || '' 
+      })
+      console.log('Setting isGradeDialogOpen to true...')
+      setIsGradeDialogOpen(true)
+      console.log('Dialog should open now, isGradeDialogOpen will be set to true')
+      // 强制检查状态
+      setTimeout(() => {
+        console.log('After setTimeout, checking if dialog should be open')
+      }, 100)
+    } catch (error) {
+      console.error('Error in handleGradeClick:', error)
+      alert('打开评分对话框失败: ' + error.message)
+    }
+  }
+
+  const handleGradeSubmit = async () => {
+    if (!gradingSubmission || !selectedHomework) {
+      console.error('Missing gradingSubmission or selectedHomework')
+      return
+    }
+    if (!gradeData.score || isNaN(parseFloat(gradeData.score))) {
+      alert('请输入有效的分数')
+      return
+    }
+    try {
+      const token = localStorage.getItem('token')
+      console.log('Submitting grade:', {
+        homeworkId: selectedHomework.id,
+        submissionId: gradingSubmission.id,
+        score: parseFloat(gradeData.score),
+        comment: gradeData.comment
+      })
+      const response = await api.post(`/homework/${selectedHomework.id}/grade`, {
+        submissionId: gradingSubmission.id,
+        score: parseFloat(gradeData.score),
+        comment: gradeData.comment
+      }, { headers: { Authorization: `Bearer ${token}` } })
+      console.log('Grade submitted successfully:', response.data)
+      alert('评分成功！')
+      setIsGradeDialogOpen(false)
+      setGradingSubmission(null)
+      setGradeData({ score: '', comment: '' })
+      await handleViewDetails(selectedHomework)
+    } catch (error) {
+      console.error('Grade submission error:', error)
+      alert('评分失败: ' + (error?.response?.data?.error || error?.response?.data?.message || error.message))
     }
   }
 
@@ -133,6 +292,7 @@ const HomeworkModule = () => {
 
   if (selectedHomework && !isSubmitting) {
     return (
+      <>
       <div className="space-y-6">
         <Button variant="ghost" onClick={() => setSelectedHomework(null)} className="gap-2"><ArrowLeft className="h-4 w-4" />Back作业列表</Button>
         <Card>
@@ -176,28 +336,85 @@ const HomeworkModule = () => {
             </div>
 
             <div className="space-y-3 pt-4 border-t">
-              <h3 className="font-semibold">StudentSubmit情况 ({selectedHomework.submissions.length})</h3>
+              <h3 className="font-semibold">学生提交情况 ({selectedHomework.submissions.length})</h3>
               {selectedHomework.submissions.length > 0 ? (
                 <div className="space-y-2">
-                  {selectedHomework.submissions.map((submission) => (
+                  {selectedHomework.submissions
+                    .filter(sub => {
+                      // 学生只能看到自己的提交，老师可以看到所有
+                      if (currentUser?.role === 'STUDENT') {
+                        return sub.studentId === currentUser?.id
+                      }
+                      return true
+                    })
+                    .map((submission) => (
                     <Card key={submission.id}>
                       <CardContent className="pt-6">
                         <div className="flex items-center justify-between">
-                          <div className="space-y-1">
+                          <div className="space-y-1 flex-1">
                             <div className="flex items-center gap-3">
                               <span className="font-medium">{submission.studentName}</span>
                               <span className="text-sm text-muted-foreground">{submission.studentId}</span>
                               {getSubmissionStatusBadge(submission.status)}
                             </div>
-                            <div className="text-sm text-muted-foreground">Submit时间: {submission.submitTime}</div>
-                            <div className="flex gap-2">{submission.files.map((file, idx) => <Badge key={idx} variant="outline">{file}</Badge>)}</div>
-                          </div>
-                          <div className="text-right space-y-2">
-                            {submission.score !== null ? (
-                              <div className="text-2xl font-bold text-primary">{submission.score}</div>
-                            ) : (
-                              canGradeHomework() && <Button size="sm">Grade</Button>
+                            <div className="text-sm text-muted-foreground">Submit时间: {new Date(submission.submitTime).toLocaleString('zh-CN')}</div>
+                            <div className="flex gap-2 items-center">
+                              {submission.files?.map((file, idx) => (
+                                <Badge key={idx} variant="outline" className="gap-1">
+                                  <FileText className="h-3 w-3" />
+                                  {typeof file === 'string' ? file : file.name || file}
+                                </Badge>
+                              ))}
+                            </div>
+                            {submission.comment && (
+                              <div className="text-sm text-muted-foreground mt-1">备注: {submission.comment}</div>
                             )}
+                          </div>
+                          <div className="text-right space-y-2 flex-shrink-0 ml-4">
+                            <div className="flex gap-2 justify-end">
+                              {canGradeHomework() && (
+                                <Button size="sm" variant="outline" onClick={() => handleDownloadSubmission(submission)} className="gap-1">
+                                  <Download className="h-3 w-3" />
+                                  下载
+                                </Button>
+                              )}
+                              {(submission.studentId === currentUser?.id || canGradeHomework()) && (
+                                <Button size="sm" variant="outline" onClick={() => handleDeleteSubmission(submission.id)} className="gap-1 text-destructive">
+                                  <Trash2 className="h-3 w-3" />
+                                  删除
+                                </Button>
+                              )}
+                            </div>
+                            {submission.score !== null && submission.score !== undefined ? (
+                              <div className="space-y-1">
+                                <div className="text-2xl font-bold text-primary">{submission.score} 分</div>
+                                {submission.comment && (
+                                  <div className="text-xs text-muted-foreground">评语: {submission.comment}</div>
+                                )}
+                                {canGradeHomework() && (
+                                  <Button size="sm" variant="outline" onClick={() => handleGradeClick(submission)} className="mt-1">重新评分</Button>
+                                )}
+                              </div>
+                            ) : (
+                              canGradeHomework() && (
+                                <Button 
+                                  size="sm" 
+                                  onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    console.log('Grade button clicked, submission:', submission)
+                                    handleGradeClick(submission)
+                                  }}
+                                >
+                                  Grade
+                                </Button>
+                              )
+                            )}
+                            {submission.score === null || submission.score === undefined ? (
+                              currentUser?.role === 'STUDENT' && (
+                                <div className="text-sm text-muted-foreground mt-1">待评分</div>
+                              )
+                            ) : null}
                           </div>
                         </div>
                       </CardContent>
@@ -209,6 +426,71 @@ const HomeworkModule = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* 评分对话框 - 必须在组件顶层 */}
+      {console.log('Rendering Grade Dialog, isGradeDialogOpen:', isGradeDialogOpen, 'gradingSubmission:', gradingSubmission)}
+      <Dialog 
+        open={isGradeDialogOpen} 
+        onOpenChange={(open) => {
+          console.log('Dialog onOpenChange called, open:', open, 'current isGradeDialogOpen:', isGradeDialogOpen)
+          setIsGradeDialogOpen(open)
+          if (!open) {
+            setGradingSubmission(null)
+            setGradeData({ score: '', comment: '' })
+          }
+        }}
+      >
+        <DialogContent 
+          className="sm:max-w-[400px]" 
+          onPointerDownOutside={(e) => {
+            console.log('onPointerDownOutside called')
+            // 允许点击外部关闭
+          }}
+          onEscapeKeyDown={(e) => {
+            console.log('onEscapeKeyDown called')
+            setIsGradeDialogOpen(false)
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>评分作业</DialogTitle>
+            <DialogDescription>
+              {gradingSubmission ? `为学生 ${gradingSubmission.studentName} 评分` : '评分'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="score">分数 *</Label>
+              <Input 
+                id="score" 
+                type="number" 
+                value={gradeData.score} 
+                onChange={(e) => setGradeData({ ...gradeData, score: e.target.value })} 
+                placeholder="请输入分数"
+                min="0"
+                max={selectedHomework?.totalScore || 100}
+              />
+              {selectedHomework?.totalScore && (
+                <p className="text-xs text-muted-foreground">满分: {selectedHomework.totalScore}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="gradeComment">评语</Label>
+              <Textarea 
+                id="gradeComment" 
+                value={gradeData.comment} 
+                onChange={(e) => setGradeData({ ...gradeData, comment: e.target.value })} 
+                placeholder="请输入评语（可选）" 
+                rows={4} 
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setIsGradeDialogOpen(false); setGradeData({ score: '', comment: '' }) }}>取消</Button>
+            <Button onClick={handleGradeSubmit} disabled={!gradeData.score || isNaN(parseFloat(gradeData.score))}>确认评分</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      </>
     )
   }
 
@@ -224,20 +506,25 @@ const HomeworkModule = () => {
           <CardContent className="space-y-6">
             <div className="space-y-3">
               <Label>Homework File *</Label>
-              <div className="border-2 border-dashed rounded-lg p-8 text-center">
-                <Upload className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <p className="text-sm text-muted-foreground mb-2">Click or drag files here to upload</p>
-                <p className="text-xs text-muted-foreground">Supports .zip, .rar, .pdf, .doc, .docx formats</p>
-                <Button variant="outline" className="mt-4">Choose File</Button>
-              </div>
+              <Input type="file" ref={fileInputRef} onChange={(e) => setUploadFile(e.target.files[0])} />
+              {uploadFile && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground p-2 bg-muted rounded">
+                  <FileText className="h-4 w-4" />
+                  <span>{uploadFile.name}</span>
+                  <span className="text-xs">({(uploadFile.size / 1024 / 1024).toFixed(2)} MB)</span>
+                </div>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="comment">Notes</Label>
               <Textarea id="comment" placeholder="Add notes or comments(可选)" rows={4} />
             </div>
             <div className="flex gap-2">
-              <Button onClick={() => handleSubmit()} className="gap-2"><CheckCircle2 className="h-4 w-4" />确认Submit</Button>
-              <Button variant="outline" onClick={() => setIsSubmitting(false)}>Cancel</Button>
+              <Button onClick={handleSubmit} disabled={!uploadFile || uploading} className="gap-2">
+                {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                {uploading ? '上传中...' : '确认Submit'}
+              </Button>
+              <Button variant="outline" onClick={() => { setIsSubmitting(false); setUploadFile(null); if (fileInputRef.current) fileInputRef.current.value = '' }}>Cancel</Button>
             </div>
           </CardContent>
         </Card>
@@ -343,6 +630,69 @@ const HomeworkModule = () => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleCreate} disabled={!formData.title || !formData.description || !formData.dueDate}>Publish作业</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {console.log('Rendering Dialog, isGradeDialogOpen:', isGradeDialogOpen, 'gradingSubmission:', gradingSubmission)}
+      <Dialog 
+        open={isGradeDialogOpen} 
+        onOpenChange={(open) => {
+          console.log('Dialog onOpenChange called, open:', open, 'current isGradeDialogOpen:', isGradeDialogOpen)
+          setIsGradeDialogOpen(open)
+          if (!open) {
+            setGradingSubmission(null)
+            setGradeData({ score: '', comment: '' })
+          }
+        }}
+      >
+        <DialogContent 
+          className="sm:max-w-[400px]" 
+          onPointerDownOutside={(e) => {
+            console.log('onPointerDownOutside called')
+            // 允许点击外部关闭
+          }}
+          onEscapeKeyDown={(e) => {
+            console.log('onEscapeKeyDown called')
+            setIsGradeDialogOpen(false)
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>评分作业</DialogTitle>
+            <DialogDescription>
+              {gradingSubmission ? `为学生 ${gradingSubmission.studentName} 评分` : '评分'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="score">分数 *</Label>
+              <Input 
+                id="score" 
+                type="number" 
+                value={gradeData.score} 
+                onChange={(e) => setGradeData({ ...gradeData, score: e.target.value })} 
+                placeholder="请输入分数"
+                min="0"
+                max={selectedHomework?.totalScore || 100}
+              />
+              {selectedHomework?.totalScore && (
+                <p className="text-xs text-muted-foreground">满分: {selectedHomework.totalScore}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="gradeComment">评语</Label>
+              <Textarea 
+                id="gradeComment" 
+                value={gradeData.comment} 
+                onChange={(e) => setGradeData({ ...gradeData, comment: e.target.value })} 
+                placeholder="请输入评语（可选）" 
+                rows={4} 
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setIsGradeDialogOpen(false); setGradeData({ score: '', comment: '' }) }}>取消</Button>
+            <Button onClick={handleGradeSubmit} disabled={!gradeData.score || isNaN(parseFloat(gradeData.score))}>确认评分</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

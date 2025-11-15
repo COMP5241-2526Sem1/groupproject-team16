@@ -2,7 +2,12 @@ const express = require('express');
 const router = express.Router();
 const { getPrisma } = require('../utils/prisma');
 const { authenticateToken } = require('../middleware/auth');
+const OSSClient = require('../utils/oss-client');
+const ossConfig = require('../utils/oss-config');
 const prisma = getPrisma();
+const ossClient = ossConfig.accessKeyId && ossConfig.accessKeySecret && ossConfig.bucket 
+  ? new OSSClient(ossConfig.accessKeyId, ossConfig.accessKeySecret, ossConfig.bucket, ossConfig.region, ossConfig.prefix)
+  : null;
 
 // 获取所有作业
 router.get('/', async (req, res) => {
@@ -29,7 +34,7 @@ router.get('/', async (req, res) => {
       orderBy: { createdAt: 'desc' }
     });
 
-    const data = homeworks.map(hw => {
+    const data = await Promise.all(homeworks.map(async (hw) => {
       const totalStudents = hw.course.students.length;
       const submitted = hw.submissions.length;
       const isActive = new Date(hw.deadline) > new Date();
@@ -45,19 +50,29 @@ router.get('/', async (req, res) => {
         submitted,
         totalStudents,
         attachments: [], // 可以后续扩展
-        submissions: hw.submissions.map(sub => ({
+      submissions: await Promise.all(hw.submissions.map(async (sub) => {
+        let fileUrl = sub.fileUrl;
+        try {
+          if (ossClient && !fileUrl.startsWith('http')) {
+            fileUrl = await ossClient.getFileUrl(sub.fileUrl, 3600 * 24 * 7);
+          }
+        } catch (e) {
+          console.warn(`生成作业文件URL失败 (提交ID: ${sub.id}):`, e.message);
+        }
+        return {
           id: sub.id,
           studentId: sub.studentId,
           studentName: sub.student.name,
           submitTime: sub.submittedAt.toISOString(),
-          files: [{ name: sub.fileUrl.split('/').pop(), url: sub.fileUrl }],
+          files: [{ name: sub.fileUrl.split('/').pop(), url: fileUrl }],
           score: sub.score,
           status: sub.score !== null ? 'graded' : 'submitted',
           comment: sub.note || ''
-        })),
+        };
+      })),
         createdAt: hw.createdAt.toISOString()
       };
-    });
+    }));
 
     res.json({ success: true, data, total: data.length });
   } catch (error) {
@@ -106,15 +121,25 @@ router.get('/:id', async (req, res) => {
       submitted,
       totalStudents,
       attachments: [],
-      submissions: homework.submissions.map(sub => ({
-        id: sub.id,
-        studentId: sub.studentId,
-        studentName: sub.student.name,
-        submitTime: sub.submittedAt.toISOString(),
-        files: [{ name: sub.fileUrl.split('/').pop(), url: sub.fileUrl }],
-        score: sub.score,
-        status: sub.score !== null ? 'graded' : 'submitted',
-        comment: sub.note || ''
+      submissions: await Promise.all(homework.submissions.map(async (sub) => {
+        let fileUrl = sub.fileUrl;
+        try {
+          if (ossClient && !fileUrl.startsWith('http')) {
+            fileUrl = await ossClient.getFileUrl(sub.fileUrl, 3600 * 24 * 7);
+          }
+        } catch (e) {
+          console.warn(`生成作业文件URL失败 (提交ID: ${sub.id}):`, e.message);
+        }
+        return {
+          id: sub.id,
+          studentId: sub.studentId,
+          studentName: sub.student.name,
+          submitTime: sub.submittedAt.toISOString(),
+          files: [{ name: sub.fileUrl.split('/').pop(), url: fileUrl }],
+          score: sub.score,
+          status: sub.score !== null ? 'graded' : 'submitted',
+          comment: sub.note || ''
+        };
       })),
       createdAt: homework.createdAt.toISOString()
     };
@@ -133,10 +158,18 @@ router.post('/', authenticateToken, async (req, res) => {
     if (!title || !description || !dueDate) {
       return res.status(400).json({ error: '缺少必填字段' });
     }
+    if (!courseId) {
+      return res.status(400).json({ error: '缺少课程ID' });
+    }
+
+    const course = await prisma.course.findUnique({ where: { id: courseId } });
+    if (!course) {
+      return res.status(404).json({ error: '课程不存在' });
+    }
 
     const homework = await prisma.homework.create({
       data: {
-        courseId: courseId || req.user?.courseId || '1',
+        courseId,
         title,
         description,
         deadline: new Date(dueDate)
@@ -248,15 +281,25 @@ router.get('/:id/submissions', async (req, res) => {
       return res.status(404).json({ error: '作业不存在' });
     }
 
-    const data = homework.submissions.map(sub => ({
-      id: sub.id,
-      studentId: sub.studentId,
-      studentName: sub.student.name,
-      submitTime: sub.submittedAt.toISOString(),
-      files: [{ name: sub.fileUrl.split('/').pop(), url: sub.fileUrl }],
-      score: sub.score,
-      status: sub.score !== null ? 'graded' : 'submitted',
-      comment: sub.note || ''
+    const data = await Promise.all(homework.submissions.map(async (sub) => {
+      let fileUrl = sub.fileUrl;
+      try {
+        if (ossClient && !fileUrl.startsWith('http')) {
+          fileUrl = await ossClient.getFileUrl(sub.fileUrl, 3600 * 24 * 7);
+        }
+      } catch (e) {
+        console.warn(`生成作业文件URL失败 (提交ID: ${sub.id}):`, e.message);
+      }
+      return {
+        id: sub.id,
+        studentId: sub.studentId,
+        studentName: sub.student.name,
+        submitTime: sub.submittedAt.toISOString(),
+        files: [{ name: sub.fileUrl.split('/').pop(), url: fileUrl }],
+        score: sub.score,
+        status: sub.score !== null ? 'graded' : 'submitted',
+        comment: sub.note || ''
+      };
     }));
 
     res.json({ success: true, data, total: data.length });
@@ -266,19 +309,19 @@ router.get('/:id/submissions', async (req, res) => {
   }
 });
 
-// 提交作业
+// 提交作业（接收上传后的文件信息）
 router.post('/:id/submit', authenticateToken, async (req, res) => {
   try {
-    const { files, comment } = req.body;
+    const { fileUrl, ossPath, comment } = req.body;
     const studentId = req.user?.userId;
     
-    if (!studentId) {
-      return res.status(400).json({ error: '缺少学生ID' });
-    }
+    if (!studentId) return res.status(400).json({ error: '缺少学生ID' });
+    if (!fileUrl && !ossPath) return res.status(400).json({ error: '缺少文件信息' });
 
-    if (!files || files.length === 0) {
-      return res.status(400).json({ error: '缺少文件' });
-    }
+    const homework = await prisma.homework.findUnique({ where: { id: req.params.id } });
+    if (!homework) return res.status(404).json({ error: '作业不存在' });
+
+    const finalFileUrl = ossPath || fileUrl;
 
     // 检查是否已提交
     const existing = await prisma.homeworkSubmission.findUnique({
@@ -290,14 +333,21 @@ router.post('/:id/submit', authenticateToken, async (req, res) => {
       }
     });
 
-    const fileUrl = files[0]?.url || files[0] || '/uploads/submissions/default.zip';
-
     if (existing) {
+      // 删除旧的OSS文件
+      if (ossClient && existing.fileUrl && !existing.fileUrl.startsWith('http')) {
+        try {
+          await ossClient.deleteFile(existing.fileUrl);
+        } catch (e) {
+          console.warn('删除旧作业文件失败:', e.message);
+        }
+      }
+      
       // 更新现有提交
       const submission = await prisma.homeworkSubmission.update({
         where: { id: existing.id },
         data: {
-          fileUrl,
+          fileUrl: finalFileUrl,
           note: comment || '',
           submittedAt: new Date()
         },
@@ -308,6 +358,15 @@ router.post('/:id/submit', authenticateToken, async (req, res) => {
         }
       });
 
+      let previewUrl = finalFileUrl;
+      try {
+        if (ossClient && !finalFileUrl.startsWith('http')) {
+          previewUrl = await ossClient.getFileUrl(finalFileUrl, 3600 * 24 * 7);
+        }
+      } catch (e) {
+        console.warn('生成预览URL失败:', e.message);
+      }
+
       return res.json({
         success: true,
         data: {
@@ -315,7 +374,7 @@ router.post('/:id/submit', authenticateToken, async (req, res) => {
           studentId: submission.studentId,
           studentName: submission.student.name,
           submitTime: submission.submittedAt.toISOString(),
-          files: [{ name: fileUrl.split('/').pop(), url: fileUrl }],
+          files: [{ name: finalFileUrl.split('/').pop(), url: previewUrl }],
           score: submission.score,
           status: 'submitted',
           comment: submission.note || ''
@@ -329,7 +388,7 @@ router.post('/:id/submit', authenticateToken, async (req, res) => {
       data: {
         homeworkId: req.params.id,
         studentId,
-        fileUrl,
+        fileUrl: finalFileUrl,
         note: comment || ''
       },
       include: {
@@ -339,6 +398,15 @@ router.post('/:id/submit', authenticateToken, async (req, res) => {
       }
     });
 
+    let previewUrl = finalFileUrl;
+    try {
+      if (ossClient && !finalFileUrl.startsWith('http')) {
+        previewUrl = await ossClient.getFileUrl(finalFileUrl, 3600 * 24 * 7);
+      }
+    } catch (e) {
+      console.warn('生成预览URL失败:', e.message);
+    }
+
     res.status(201).json({
       success: true,
       data: {
@@ -346,7 +414,7 @@ router.post('/:id/submit', authenticateToken, async (req, res) => {
         studentId: submission.studentId,
         studentName: submission.student.name,
         submitTime: submission.submittedAt.toISOString(),
-        files: [{ name: fileUrl.split('/').pop(), url: fileUrl }],
+        files: [{ name: finalFileUrl.split('/').pop(), url: previewUrl }],
         score: null,
         status: 'submitted',
         comment: submission.note || ''
@@ -356,6 +424,81 @@ router.post('/:id/submit', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error submitting homework:', error);
     res.status(500).json({ error: '提交作业失败', message: error.message });
+  }
+});
+
+// 删除作业提交
+router.delete('/submissions/:submissionId', authenticateToken, async (req, res) => {
+  try {
+    const submission = await prisma.homeworkSubmission.findUnique({
+      where: { id: req.params.submissionId },
+      include: { homework: true }
+    });
+    if (!submission) return res.status(404).json({ error: '提交不存在' });
+    
+    const studentId = req.user?.userId;
+    if (submission.studentId !== studentId && req.user?.role !== 'TEACHER' && req.user?.role !== 'ADMIN') {
+      return res.status(403).json({ error: '无权删除此提交' });
+    }
+    
+    // 从OSS删除文件
+    if (ossClient && submission.fileUrl && !submission.fileUrl.startsWith('http')) {
+      try {
+        await ossClient.deleteFile(submission.fileUrl);
+      } catch (e) {
+        console.warn('OSS删除失败，继续删除数据库记录:', e.message);
+      }
+    }
+    
+    await prisma.homeworkSubmission.delete({ where: { id: req.params.submissionId } });
+    res.json({ success: true, message: '提交删除成功' });
+  } catch (error) {
+    console.error('Error deleting submission:', error);
+    res.status(500).json({ error: '删除提交失败', message: error.message });
+  }
+});
+
+// 下载作业提交
+router.get('/submissions/:submissionId/download', async (req, res) => {
+  try {
+    const submission = await prisma.homeworkSubmission.findUnique({
+      where: { id: req.params.submissionId },
+      include: {
+        student: { select: { name: true } },
+        homework: { select: { title: true } }
+      }
+    });
+    if (!submission) return res.status(404).json({ error: '提交不存在' });
+    
+    if (!ossClient) return res.status(500).json({ error: 'OSS未配置' });
+    
+    const ossPath = submission.fileUrl;
+    console.log(`尝试从OSS下载作业文件，路径: ${ossPath}`);
+    
+    try {
+      const fileStream = await ossClient.getFileStream(ossPath);
+      const fileName = `${submission.student.name}_${submission.homework.title}_${ossPath.split('/').pop()}`;
+      
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+      res.setHeader('Content-Type', fileStream.res.headers['content-type'] || 'application/octet-stream');
+      if (fileStream.res.headers['content-length']) {
+        res.setHeader('Content-Length', fileStream.res.headers['content-length']);
+      }
+      
+      fileStream.stream.pipe(res);
+    } catch (ossError) {
+      console.error(`OSS获取文件流失败 (路径: ${ossPath}):`, ossError.message);
+      try {
+        const fileUrl = await ossClient.getFileUrl(ossPath, 3600);
+        res.redirect(fileUrl);
+      } catch (urlError) {
+        console.error('生成下载URL也失败:', urlError.message);
+        res.status(500).json({ error: '下载失败', message: `OSS错误: ${ossError.message}` });
+      }
+    }
+  } catch (error) {
+    console.error('Download error:', error);
+    res.status(500).json({ error: '下载失败', message: error.message });
   }
 });
 
@@ -380,6 +523,16 @@ router.post('/:id/grade', authenticateToken, async (req, res) => {
       }
     });
 
+    // 生成文件URL
+    let fileUrl = submission.fileUrl;
+    try {
+      if (ossClient && !fileUrl.startsWith('http')) {
+        fileUrl = await ossClient.getFileUrl(submission.fileUrl, 3600 * 24 * 7);
+      }
+    } catch (e) {
+      console.warn('生成文件URL失败:', e.message);
+    }
+
     res.json({
       success: true,
       data: {
@@ -387,7 +540,7 @@ router.post('/:id/grade', authenticateToken, async (req, res) => {
         studentId: submission.studentId,
         studentName: submission.student.name,
         submitTime: submission.submittedAt.toISOString(),
-        files: [{ name: submission.fileUrl.split('/').pop(), url: submission.fileUrl }],
+        files: [{ name: submission.fileUrl.split('/').pop(), url: fileUrl }],
         score: submission.score,
         status: 'graded',
         comment: submission.note || ''

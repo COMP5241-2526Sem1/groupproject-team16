@@ -2,6 +2,15 @@ const express = require('express');
 const router = express.Router();
 const uploadMiddleware = require('../middleware/upload');
 const path = require('path');
+const fs = require('fs');
+const OSSClient = require('../utils/oss-client');
+const ossConfig = require('../utils/oss-config');
+const { getPrisma } = require('../utils/prisma');
+const prisma = getPrisma();
+
+const ossClient = ossConfig.accessKeyId && ossConfig.accessKeySecret && ossConfig.bucket 
+  ? new OSSClient(ossConfig.accessKeyId, ossConfig.accessKeySecret, ossConfig.bucket, ossConfig.region, ossConfig.prefix)
+  : null;
 
 // 获取基础 URL（根据环境自动判断）
 function getBaseUrl(req) {
@@ -79,16 +88,30 @@ router.post('/multiple', uploadMiddleware.array('files', 10), (req, res) => {
 });
 
 // 作业文件上传
-router.post('/homework', uploadMiddleware.single('homework'), (req, res) => {
+router.post('/homework', uploadMiddleware.single('homework'), async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: '未选择作业文件' });
-    }
-
-    const { studentId, homeworkId } = req.body;
-    const baseUrl = getBaseUrl(req);
-    const filePath = `/uploads/${path.basename(path.dirname(req.file.path))}/${req.file.filename}`;
-
+    if (!req.file) return res.status(400).json({ error: '未选择作业文件' });
+    if (!ossClient) return res.status(500).json({ error: 'OSS未配置，请设置OSS环境变量' });
+    const { studentId, homeworkId, courseId } = req.body;
+    if (!studentId || !homeworkId || !courseId) return res.status(400).json({ error: '缺少必填参数' });
+    
+    const course = await prisma.course.findUnique({ where: { id: courseId } });
+    if (!course) return res.status(404).json({ error: '课程不存在' });
+    
+    const homework = await prisma.homework.findUnique({ where: { id: homeworkId } });
+    if (!homework) return res.status(404).json({ error: '作业不存在' });
+    
+    const courseName = course.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(req.file.originalname);
+    const basename = path.basename(req.file.originalname, ext);
+    const ossFileName = `homework/${courseName}/${homeworkId}/${studentId}-${basename}-${uniqueSuffix}${ext}`;
+    
+    const uploadResult = await ossClient.uploadFile(req.file.path, ossFileName);
+    if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    
+    const fileUrl = await ossClient.getFileUrl(ossFileName, 3600 * 24 * 7);
+    
     res.json({
       success: true,
       message: '作业上传成功',
@@ -96,44 +119,70 @@ router.post('/homework', uploadMiddleware.single('homework'), (req, res) => {
         studentId,
         homeworkId,
         file: {
-          filename: req.file.filename,
+          filename: req.file.originalname,
           originalname: req.file.originalname,
           size: req.file.size,
-          url: `${baseUrl}${filePath}`
+          url: fileUrl,
+          ossPath: ossFileName
         },
         submittedAt: new Date().toISOString()
       }
     });
   } catch (error) {
+    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     res.status(500).json({ error: '上传失败', message: error.message });
   }
 });
 
 // 课程资源上传
-router.post('/resource', uploadMiddleware.single('resource'), (req, res) => {
+router.post('/resource', uploadMiddleware.single('resource'), async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: '未选择资源文件' });
-    }
-
+    if (!req.file) return res.status(400).json({ error: '未选择资源文件' });
+    if (!ossClient) return res.status(500).json({ error: 'OSS未配置，请设置OSS环境变量' });
     const { courseId, name, description } = req.body;
-    const baseUrl = getBaseUrl(req);
-    const filePath = `/uploads/${path.basename(path.dirname(req.file.path))}/${req.file.filename}`;
-
+    if (!courseId) return res.status(400).json({ error: '课程ID不能为空' });
+    
+    const course = await prisma.course.findUnique({ where: { id: courseId } });
+    if (!course) return res.status(404).json({ error: '课程不存在' });
+    
+    const courseName = course.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_'); // 清理课程名作为前缀
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(req.file.originalname);
+    const basename = path.basename(req.file.originalname, ext);
+    const ossFileName = `${courseName}/${basename}-${uniqueSuffix}${ext}`;
+    
+    const uploadResult = await ossClient.uploadFile(req.file.path, ossFileName);
+    if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path); // 删除临时文件
+    
+    const fileType = ext.slice(1).toLowerCase() || 'file';
+    const fileUrl = await ossClient.getFileUrl(ossFileName, 3600 * 24 * 7); // 7天有效期
+    
+    const resource = await prisma.courseResource.create({
+      data: {
+        courseId,
+        name: name || req.file.originalname,
+        type: fileType,
+        fileUrl: ossFileName, // 存储 OSS 路径，用于删除和获取 URL
+        size: req.file.size,
+        downloads: 0
+      }
+    });
+    
     res.json({
       success: true,
       message: '资源上传成功',
       resource: {
-        courseId,
-        name: name || req.file.originalname,
-        description,
-        type: req.file.mimetype,
-        size: req.file.size,
-        url: `${baseUrl}${filePath}`,
-        uploadedAt: new Date().toISOString()
+        id: resource.id,
+        courseId: resource.courseId,
+        name: resource.name,
+        type: resource.type,
+        size: resource.size,
+        url: fileUrl,
+        uploadedAt: resource.uploadedAt.toISOString()
       }
     });
   } catch (error) {
+    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     res.status(500).json({ error: '上传失败', message: error.message });
   }
 });

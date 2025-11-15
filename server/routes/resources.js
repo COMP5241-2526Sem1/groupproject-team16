@@ -2,7 +2,12 @@ const express = require('express');
 const router = express.Router();
 const { getPrisma } = require('../utils/prisma');
 const { authenticateToken } = require('../middleware/auth');
+const OSSClient = require('../utils/oss-client');
+const ossConfig = require('../utils/oss-config');
 const prisma = getPrisma();
+const ossClient = ossConfig.accessKeyId && ossConfig.accessKeySecret && ossConfig.bucket 
+  ? new OSSClient(ossConfig.accessKeyId, ossConfig.accessKeySecret, ossConfig.bucket, ossConfig.region, ossConfig.prefix)
+  : null;
 
 // 格式化文件大小
 const formatSize = (bytes) => {
@@ -17,7 +22,7 @@ router.get('/', async (req, res) => {
     const { courseId, type, search } = req.query;
     const where = {};
     
-    if (courseId) where.courseId = courseId;
+    if (courseId) where.courseId = courseId; // 必须提供 courseId 才能查看资源
     if (type) where.type = type;
     if (search) {
       where.OR = [
@@ -39,20 +44,32 @@ router.get('/', async (req, res) => {
       orderBy: { uploadedAt: 'desc' }
     });
 
-    const data = resources.map(resource => ({
-      id: resource.id,
-      courseId: resource.courseId,
-      name: resource.name,
-      type: resource.type,
-      size: resource.size,
-      sizeFormatted: formatSize(resource.size),
-      url: resource.fileUrl,
-      course: resource.course.name,
-      uploadedBy: resource.course.teacher.name,
-      uploadedById: resource.course.teacher.id,
-      uploadedAt: resource.uploadedAt.toISOString(),
-      downloads: resource.downloads,
-      description: '' // schema中没有description字段
+    const data = await Promise.all(resources.map(async (resource) => {
+      let url = resource.fileUrl;
+      try {
+        // 如果 fileUrl 是 OSS 路径，生成签名 URL
+        if (ossClient && !url.startsWith('http')) {
+          url = await ossClient.getFileUrl(resource.fileUrl, 3600 * 24 * 7); // 7天有效期
+        }
+      } catch (e) {
+        console.warn(`生成 OSS URL 失败 (资源ID: ${resource.id}, 路径: ${resource.fileUrl}):`, e.message);
+        url = resource.fileUrl; // 使用原始路径
+      }
+      return {
+        id: resource.id,
+        courseId: resource.courseId,
+        name: resource.name,
+        type: resource.type,
+        size: resource.size,
+        sizeFormatted: formatSize(resource.size),
+        url: url,
+        course: resource.course.name,
+        uploadedBy: resource.course.teacher.name,
+        uploadedById: resource.course.teacher.id,
+        uploadedAt: resource.uploadedAt.toISOString(),
+        downloads: resource.downloads,
+        description: ''
+      };
     }));
 
     res.json({ success: true, data, total: data.length });
@@ -82,6 +99,16 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: '资源不存在' });
     }
 
+    let url = resource.fileUrl;
+    try {
+      if (ossClient && !url.startsWith('http')) {
+        url = await ossClient.getFileUrl(resource.fileUrl, 3600 * 24 * 7);
+      }
+    } catch (e) {
+      console.warn(`生成 OSS URL 失败 (资源ID: ${resource.id}, 路径: ${resource.fileUrl}):`, e.message);
+      url = resource.fileUrl; // 使用原始路径
+    }
+
     const data = {
       id: resource.id,
       courseId: resource.courseId,
@@ -89,7 +116,7 @@ router.get('/:id', async (req, res) => {
       type: resource.type,
       size: resource.size,
       sizeFormatted: formatSize(resource.size),
-      url: resource.fileUrl,
+      url: url,
       course: resource.course.name,
       uploadedBy: resource.course.teacher.name,
       uploadedById: resource.course.teacher.id,
@@ -204,6 +231,27 @@ router.put('/:id', authenticateToken, async (req, res) => {
 // 删除资源
 router.delete('/:id', authenticateToken, async (req, res) => {
   try {
+    const resource = await prisma.courseResource.findUnique({ where: { id: req.params.id } });
+    if (!resource) return res.status(404).json({ error: '资源不存在' });
+    
+    // 从 OSS 删除文件
+    if (ossClient) {
+      try {
+        let ossPath = resource.fileUrl;
+        // 如果 fileUrl 是完整 URL，提取路径
+        if (ossPath.startsWith('http')) {
+          try {
+            const url = new URL(ossPath);
+            const pathParts = url.pathname.split('/').filter(p => p);
+            ossPath = pathParts.slice(-2).join('/'); // 获取课程名/文件名
+          } catch {}
+        }
+        await ossClient.deleteFile(ossPath);
+      } catch (e) {
+        console.warn('OSS删除失败，继续删除数据库记录:', e.message);
+      }
+    }
+    
     await prisma.courseResource.delete({ where: { id: req.params.id } });
     res.json({ success: true, message: '资源删除成功' });
   } catch (error) {
@@ -221,11 +269,59 @@ router.post('/:id/download', async (req, res) => {
         downloads: { increment: 1 }
       }
     });
-
     res.json({ success: true, data: { downloads: resource.downloads }, message: '下载成功' });
   } catch (error) {
     console.error('Error recording download:', error);
     res.status(500).json({ error: '记录下载失败', message: error.message });
+  }
+});
+
+// 下载文件（从OSS获取文件流）
+router.get('/:id/download', async (req, res) => {
+  try {
+    const resource = await prisma.courseResource.findUnique({ where: { id: req.params.id } });
+    if (!resource) return res.status(404).json({ error: '资源不存在' });
+    
+    if (!ossClient) {
+      return res.status(500).json({ error: 'OSS未配置' });
+    }
+    
+    // 从OSS获取文件流
+    const ossPath = resource.fileUrl; // fileUrl存储的是OSS路径（如：课程名/文件名）
+    console.log(`尝试从OSS下载文件，路径: ${ossPath}`);
+    
+    try {
+      const fileStream = await ossClient.getFileStream(ossPath);
+      
+      // 设置下载响应头
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(resource.name)}"`);
+      res.setHeader('Content-Type', fileStream.res.headers['content-type'] || 'application/octet-stream');
+      if (fileStream.res.headers['content-length']) {
+        res.setHeader('Content-Length', fileStream.res.headers['content-length']);
+      }
+      
+      // 将OSS文件流管道到响应
+      fileStream.stream.pipe(res);
+      
+      // 记录下载次数（异步，不阻塞响应）
+      prisma.courseResource.update({
+        where: { id: req.params.id },
+        data: { downloads: { increment: 1 } }
+      }).catch(e => console.warn('记录下载次数失败:', e.message));
+    } catch (ossError) {
+      console.error(`OSS获取文件流失败 (路径: ${ossPath}):`, ossError.message);
+      // 如果OSS获取失败，尝试生成签名URL并重定向
+      try {
+        const fileUrl = await ossClient.getFileUrl(ossPath, 3600);
+        res.redirect(fileUrl);
+      } catch (urlError) {
+        console.error('生成下载URL也失败:', urlError.message);
+        res.status(500).json({ error: '下载失败', message: `OSS错误: ${ossError.message}` });
+      }
+    }
+  } catch (error) {
+    console.error('Download error:', error);
+    res.status(500).json({ error: '下载失败', message: error.message });
   }
 });
 
