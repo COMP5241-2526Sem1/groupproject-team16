@@ -9,7 +9,3 @@ server/server.pid
 server/.env
 *.md
 md文件
-
-# Include Prisma schema and generated client
-!server/prisma/schema.prisma
-!server/prisma/migrations/
