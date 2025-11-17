@@ -14,6 +14,8 @@ A comprehensive teaching management system powered by AI agents, built with Reac
 - **📊 Polls & Surveys** - Create polls and collect student feedback
 - **📈 Data Analytics** - Visualize course statistics and student performance
 - **🤖 AI Generator** - Generate course content using AI agents
+- **📊 Unified Insights** - Teacher overview now整合Analytics，提供实时图表、Top学生榜和作业/测验趋势
+- **🗄️ Admin Data Room** - Administrators can browse every database table, edit records inline, and run AI Chat within the new control panel
 
 ### User Roles
 
@@ -113,6 +115,11 @@ pnpm run deploy
 - **[功能实现清单.md](./功能实现清单.md)** - 各页面功能按钮及实现状态
 - **[项目说明.md](./项目说明.md)** - 项目详细说明
 - **[权限系统说明.md](./权限系统说明.md)** - 权限系统说明
+- **管理员数据工作台**
+  - 登录管理员账号后自动进入 `/admin/overview`
+  - 左侧导航展示所有数据库表，点击即可查看、刷新、编辑最近 100 条记录
+  - 顶部 `Ping` 可实时检测 API / DB 连通性（成功绿色，失败红色）
+  - 概览页提供角色分布、课程状态与热门课程图表，并保留 AI Chat 助手
 
 ## 📄 License
 

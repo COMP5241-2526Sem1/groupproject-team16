@@ -16,6 +16,17 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// 简单日志系统：记录请求 & 响应耗时
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    const logEntry = `[${new Date().toISOString()}] ${req.method} ${req.originalUrl} ${res.statusCode} - ${duration}ms`;
+    console.log(logEntry);
+  });
+  next();
+});
+
 // 静态文件服务 - 提供上传文件访问
 // 在 serverless 环境中使用 /tmp 目录
 const isServerless = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME;
@@ -31,6 +42,7 @@ const discussionRoutes = require('./routes/discussion');
 const resourceRoutes = require('./routes/resources');
 const voteRoutes = require('./routes/vote');
 const analyticsRoutes = require('./routes/analytics');
+const adminRoutes = require('./routes/admin');
 const agentRoutes = require('./routes/agent');
 const uploadRoutes = require('./routes/upload');
 const aiRoutes = require('./routes/ai');
@@ -44,6 +56,7 @@ app.use('/api/discussion', discussionRoutes);
 app.use('/api/resources', resourceRoutes);
 app.use('/api/vote', voteRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/ai', aiRoutes);
@@ -70,7 +83,8 @@ app.get('/health', async (req, res) => {
 
 // 错误处理中间件
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error(`[${new Date().toISOString()}] ERROR ${req.method} ${req.originalUrl}`);
+  console.error(err.stack || err);
   res.status(500).json({ 
     error: 'Something went wrong!',
     message: err.message 

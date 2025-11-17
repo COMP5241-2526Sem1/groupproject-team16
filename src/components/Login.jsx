@@ -13,10 +13,16 @@ export default function Login({ onLogin }) {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [showQuickDemo, setShowQuickDemo] = useState(false);
+  const forgotInitial = { visible: false, step: 1, email: '', code: '', resetToken: '', password: '', confirm: '', message: '' };
+  const [forgot, setForgot] = useState(forgotInitial);
+  const [forgotLoading, setForgotLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setNotice('');
     setLoading(true);
 
     try {
@@ -69,10 +75,100 @@ export default function Login({ onLogin }) {
     });
   };
 
+  const handleForgotChange = (field, value) => {
+    setForgot(prev => ({ ...prev, [field]: value }));
+  };
+
+  const openForgot = () => {
+    setForgot({ ...forgotInitial, visible: true });
+    setError('');
+    setNotice('');
+  };
+
+  const closeForgot = () => {
+    setForgot(forgotInitial);
+  };
+
+  const requestResetCode = async () => {
+    if (!forgot.email) {
+      setForgot(prev => ({ ...prev, message: 'Email is required.' }));
+      return;
+    }
+    setForgot(prev => ({ ...prev, message: '' }));
+    setForgotLoading(true);
+    try {
+      const response = await fetch(getApiUrl('/auth/forgot/request'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgot.email })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || result.message || 'Failed to send code');
+      setForgot(prev => ({ ...prev, step: 2, message: 'Verification code sent. Check server logs output.' }));
+    } catch (err) {
+      setForgot(prev => ({ ...prev, message: err.message || 'Failed to send code' }));
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const verifyResetCode = async () => {
+    if (!forgot.code || !forgot.email) {
+      setForgot(prev => ({ ...prev, message: 'Enter email and code.' }));
+      return;
+    }
+    setForgot(prev => ({ ...prev, message: '' }));
+    setForgotLoading(true);
+    try {
+      const response = await fetch(getApiUrl('/auth/forgot/verify'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgot.email, code: forgot.code })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || result.message || 'Invalid code');
+      setForgot(prev => ({ ...prev, step: 3, resetToken: result.resetToken, message: 'Code verified. Set a new password.' }));
+    } catch (err) {
+      setForgot(prev => ({ ...prev, message: err.message || 'Invalid code' }));
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const resetPassword = async () => {
+    if (forgot.password.length < 6) {
+      setForgot(prev => ({ ...prev, message: 'Password must be at least 6 characters.' }));
+      return;
+    }
+    if (forgot.password !== forgot.confirm) {
+      setForgot(prev => ({ ...prev, message: 'Passwords do not match.' }));
+      return;
+    }
+    setForgot(prev => ({ ...prev, message: '' }));
+    setForgotLoading(true);
+    try {
+      const response = await fetch(getApiUrl('/auth/forgot/reset'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgot.email, password: forgot.password, resetToken: forgot.resetToken })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || result.message || 'Reset failed');
+      setNotice('Password updated. Please sign in again.');
+      closeForgot();
+      setIsLogin(true);
+    } catch (err) {
+      setForgot(prev => ({ ...prev, message: err.message || 'Reset failed' }));
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
   // 快速登录 - 使用真实API
   const quickLogin = async (role) => {
     setLoading(true);
     setError('');
+    setNotice('');
     
     try {
       const demoUsers = {
@@ -153,12 +249,12 @@ export default function Login({ onLogin }) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-white text-gray-900 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         {/* Logo和标题 */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl mb-4 shadow-lg">
-            <GraduationCap className="w-8 h-8 text-white" />
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-white border border-gray-200 rounded-2xl mb-4 shadow-sm">
+            <GraduationCap className="w-8 h-8 text-gray-900" />
           </div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
             Agent Teaching Platform
@@ -168,16 +264,107 @@ export default function Login({ onLogin }) {
           </p>
         </div>
 
-        {/* 登录/注册表单 */}
-        <div className="bg-white rounded-2xl shadow-xl p-8 mb-6">
+        {/* 登录/注册或忘记密码卡片 */}
+        {forgot.visible ? (
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-8 mb-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-semibold text-gray-900">Reset Password</h2>
+              <button onClick={closeForgot} className="text-sm text-gray-500 hover:text-gray-900">
+                Back
+              </button>
+            </div>
+            {forgot.message && (
+              <div className="mb-4 p-3 bg-gray-100 border border-gray-200 rounded-lg text-sm text-gray-700">
+                {forgot.message}
+              </div>
+            )}
+            {forgot.step === 1 && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                  <input
+                    type="email"
+                    value={forgot.email}
+                    onChange={e => handleForgotChange('email', e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent outline-none transition"
+                    placeholder="your@email.com"
+                  />
+                </div>
+                <button
+                  onClick={requestResetCode}
+                  disabled={forgotLoading}
+                  className="w-full py-3 bg-black text-white font-medium rounded-lg hover:bg-gray-900 transition disabled:opacity-50"
+                >
+                  {forgotLoading ? 'Sending...' : 'Send verification code'}
+                </button>
+                <p className="text-xs text-gray-500 text-center">
+                  A six-digit code is logged in the server console (visible on Vercel logs).
+                </p>
+              </div>
+            )}
+            {forgot.step === 2 && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Verification Code</label>
+                  <input
+                    type="text"
+                    value={forgot.code}
+                    onChange={e => handleForgotChange('code', e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent outline-none transition"
+                    placeholder="Enter 6-digit code"
+                  />
+                </div>
+                <button
+                  onClick={verifyResetCode}
+                  disabled={forgotLoading}
+                  className="w-full py-3 bg-black text-white font-medium rounded-lg hover:bg-gray-900 transition disabled:opacity-50"
+                >
+                  {forgotLoading ? 'Verifying...' : 'Verify code'}
+                </button>
+              </div>
+            )}
+            {forgot.step === 3 && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">New password</label>
+                  <input
+                    type="password"
+                    value={forgot.password}
+                    onChange={e => handleForgotChange('password', e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent outline-none transition"
+                    placeholder="Enter new password"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Confirm password</label>
+                  <input
+                    type="password"
+                    value={forgot.confirm}
+                    onChange={e => handleForgotChange('confirm', e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent outline-none transition"
+                    placeholder="Confirm password"
+                  />
+                </div>
+                <button
+                  onClick={resetPassword}
+                  disabled={forgotLoading}
+                  className="w-full py-3 bg-black text-white font-medium rounded-lg hover:bg-gray-900 transition disabled:opacity-50"
+                >
+                  {forgotLoading ? 'Updating...' : 'Update password'}
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-8 mb-6">
           {/* 切换标签 */}
           <div className="flex mb-6 bg-gray-100 rounded-lg p-1">
             <button
               onClick={() => setIsLogin(true)}
               className={`flex-1 py-2 px-4 rounded-md font-medium transition-all ${
                 isLogin
-                  ? 'bg-white text-blue-600 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
+                  ? 'bg-black text-white shadow-sm'
+                  : 'text-gray-500 hover:text-gray-900'
               }`}
             >
               登录
@@ -186,8 +373,8 @@ export default function Login({ onLogin }) {
               onClick={() => setIsLogin(false)}
               className={`flex-1 py-2 px-4 rounded-md font-medium transition-all ${
                 !isLogin
-                  ? 'bg-white text-blue-600 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
+                  ? 'bg-black text-white shadow-sm'
+                  : 'text-gray-500 hover:text-gray-900'
               }`}
             >
               注册
@@ -198,6 +385,11 @@ export default function Login({ onLogin }) {
           {error && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
               {error}
+            </div>
+          )}
+          {notice && (
+            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
+              {notice}
             </div>
           )}
 
@@ -214,7 +406,7 @@ export default function Login({ onLogin }) {
                   name="name"
                   value={formData.name}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent outline-none transition"
                   placeholder="Enter your name"
                   required={!isLogin}
                 />
@@ -233,7 +425,7 @@ export default function Login({ onLogin }) {
                   name="email"
                   value={formData.email}
                   onChange={handleChange}
-                  className="w-full pl-11 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                  className="w-full pl-11 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent outline-none transition"
                   placeholder="your@email.com"
                   required
                 />
@@ -252,7 +444,7 @@ export default function Login({ onLogin }) {
                   name="password"
                   value={formData.password}
                   onChange={handleChange}
-                  className="w-full pl-11 pr-11 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                  className="w-full pl-11 pr-11 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent outline-none transition"
                   placeholder="••••••••"
                   required
                 />
@@ -280,7 +472,7 @@ export default function Login({ onLogin }) {
                   name="role"
                   value={formData.role}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent outline-none transition"
                 >
                   <option value="TEACHER">Teacher</option>
                   <option value="STUDENT">Student</option>
@@ -293,7 +485,7 @@ export default function Login({ onLogin }) {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-medium rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-3 bg-black text-white font-medium rounded-lg hover:bg-gray-900 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? 'Processing...' : isLogin ? '登录' : '注册'}
             </button>
@@ -302,38 +494,56 @@ export default function Login({ onLogin }) {
           {/* 忘记密码 */}
           {isLogin && (
             <div className="mt-4 text-center">
-              <a href="#" className="text-sm text-blue-600 hover:text-blue-700">
+              <button onClick={openForgot} className="text-sm text-gray-900 hover:text-black">
                 Forgot password?
-              </a>
+              </button>
             </div>
           )}
         </div>
+        )}
 
         {/* 快速登录 */}
-        <div className="bg-white rounded-2xl shadow-xl p-6">
-          <p className="text-sm text-gray-600 mb-4 text-center">
-            Quick Demo (Test Accounts)
-          </p>
-          <div className="grid grid-cols-3 gap-3">
+        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6">
+          {!showQuickDemo ? (
             <button
-              onClick={() => quickLogin('TEACHER')}
-              className="py-2 px-3 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors text-sm font-medium"
+              onClick={() => setShowQuickDemo(true)}
+              className="w-full py-2 px-3 border border-gray-900 text-gray-900 rounded-lg hover:bg-gray-50 transition-colors text-xs font-medium"
             >
-              Teacher
+              Show Quick Demo Accounts
             </button>
-            <button
-              onClick={() => quickLogin('STUDENT')}
-              className="py-2 px-3 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition-colors text-sm font-medium"
-            >
-              Student
-            </button>
-            <button
-              onClick={() => quickLogin('ADMIN')}
-              className="py-2 px-3 bg-purple-50 text-purple-600 rounded-lg hover:bg-purple-100 transition-colors text-sm font-medium"
-            >
-              Administrator
-            </button>
-          </div>
+          ) : (
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-sm text-gray-600">Quick Demo Accounts</p>
+                <button
+                  onClick={() => setShowQuickDemo(false)}
+                  className="text-sm text-gray-500 hover:text-gray-900"
+                >
+                  Hide
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => quickLogin('TEACHER')}
+                  className="py-2 px-2 border border-gray-900 text-gray-900 rounded-md hover:bg-gray-50 transition-colors text-xs font-medium"
+                >
+                  Teacher
+                </button>
+                <button
+                  onClick={() => quickLogin('STUDENT')}
+                  className="py-2 px-2 border border-gray-900 text-gray-900 rounded-md hover:bg-gray-50 transition-colors text-xs font-medium"
+                >
+                  Student
+                </button>
+                <button
+                  onClick={() => quickLogin('ADMIN')}
+                  className="py-2 px-2 border border-gray-900 text-gray-900 rounded-md hover:bg-gray-50 transition-colors text-xs font-medium"
+                >
+                  Administrator
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 版权信息 */}

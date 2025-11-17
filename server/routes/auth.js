@@ -3,6 +3,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { getPrisma } = require('../utils/prisma');
+const resetStore=require('../utils/reset-store');
 
 // 使用 Prisma 存储与查询用户
 const prisma = getPrisma();
@@ -50,6 +51,7 @@ router.post('/register', async (req, res) => {
       user: newUser
     });
   } catch (error) {
+    console.error(`[${new Date().toISOString()}] /auth/register error:`, error);
     res.status(500).json({ error: '注册失败', message: error.message });
   }
 });
@@ -89,6 +91,7 @@ router.post('/login', async (req, res) => {
       user: { id: user.id, email: user.email, name: user.name, role: user.role }
     });
   } catch (error) {
+    console.error(`[${new Date().toISOString()}] /auth/login error:`, error);
     res.status(500).json({ error: '登录失败', message: error.message });
   }
 });
@@ -116,6 +119,48 @@ router.post('/send-code', async (req, res) => {
     res.status(500).json({ error: '发送验证码失败', message: error.message });
   }
 });
+
+router.post('/forgot/request',async(req,res)=>{
+  try{
+    const { email }=req.body
+    if(!email) return res.status(400).json({ error:'请输入邮箱地址' })
+    const user=await prisma.user.findUnique({ where:{ email } })
+    if(!user) return res.status(404).json({ error:'账号不存在' })
+    const { code }=resetStore.create(email)
+    console.log(`[ForgotPassword] email=${email} code=${code}`)
+    res.json({ message:'验证码已发送，请查看部署日志' })
+  }catch(error){
+    res.status(500).json({ error:'发送验证码失败', message:error.message })
+  }
+})
+
+router.post('/forgot/verify',async(req,res)=>{
+  try{
+    const { email,code }=req.body
+    if(!email||!code) return res.status(400).json({ error:'请输入邮箱和验证码' })
+    const token=resetStore.verify(email,code)
+    if(!token) return res.status(400).json({ error:'验证码无效或已过期' })
+    res.json({ message:'验证码正确', resetToken:token })
+  }catch(error){
+    res.status(500).json({ error:'验证失败', message:error.message })
+  }
+})
+
+router.post('/forgot/reset',async(req,res)=>{
+  try{
+    const { email,password,resetToken }=req.body
+    if(!email||!password||!resetToken) return res.status(400).json({ error:'请输入完整信息' })
+    const ok=resetStore.consume(email,resetToken)
+    if(!ok) return res.status(400).json({ error:'凭证无效或已过期' })
+    const user=await prisma.user.findUnique({ where:{ email } })
+    if(!user) return res.status(404).json({ error:'账号不存在' })
+    const hashed=await bcrypt.hash(password,10)
+    await prisma.user.update({ where:{ email },data:{ password:hashed } })
+    res.json({ message:'密码已更新，请重新登录' })
+  }catch(error){
+    res.status(500).json({ error:'重置失败', message:error.message })
+  }
+})
 
 // 获取当前用户信息
 router.get('/me', async (req, res) => {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { BrowserRouter as Router, Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Link, useLocation, useNavigate, Navigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button.jsx'
 import { BookOpen, Users, FileText, MessageSquare, BarChart3, Brain, CheckSquare, Vote, FolderOpen, GraduationCap, Settings, LogOut, Home, Menu, ChevronLeft, ChevronRight, Bell, Bot } from 'lucide-react'
 import './App.css'
@@ -10,14 +10,13 @@ import QuizModule from './components/QuizModule'
 import DiscussionModule from './components/DiscussionModule'
 import ResourceModule from './components/ResourceModule'
 import VoteModule from './components/VoteModule'
-import DataAnalysis from './components/DataAnalysis'
 import AgentGenerator from './components/AgentGenerator'
 import AIChat from './components/AIChat'
 import Login from './components/Login'
-import HealthIndicator from './components/HealthIndicator.jsx'
 import Notifications from './components/Notifications.jsx'
 import Profile from './components/Profile.jsx'
 import StudentOverview from './components/StudentOverview.jsx'
+import AdminPanel from './components/admin/AdminPanel.jsx'
 
 // NavHead - 顶部导航栏组件
 function NavHead({ currentCourse, user, onLogout }) {
@@ -40,11 +39,9 @@ function NavHead({ currentCourse, user, onLogout }) {
 
           {/* 右侧用户区域 */}
           <div className="flex items-center gap-3">
-            <HealthIndicator />
             <Link to="/notifications" className="relative">
               <Button variant="ghost" size="icon" className="relative">
                 <Bell className="h-5 w-5" />
-                <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full"></span>
               </Button>
             </Link>
             <Link to="/profile">
@@ -89,7 +86,6 @@ function LeftAside({ collapsed, onToggle, user }) {
     { path: '/course/quiz', icon: CheckSquare, label: 'AI Quiz', roles: ['TEACHER', 'STUDENT', 'ADMIN'] },
     { path: '/course/resources', icon: FolderOpen, label: 'Resources', roles: ['TEACHER', 'STUDENT', 'ADMIN'] },
     { path: '/course/vote', icon: Vote, label: 'Polls', roles: ['TEACHER', 'STUDENT', 'ADMIN'] },
-    { path: '/course/analytics', icon: BarChart3, label: 'Analytics', roles: ['TEACHER', 'ADMIN'] },
     { path: '/course/agent', icon: Brain, label: 'AI Course', roles: ['TEACHER', 'ADMIN'] },
     { path: '/course/ai-chat', icon: Bot, label: 'AI Chat', roles: ['TEACHER', 'STUDENT', 'ADMIN'] },
   ]
@@ -180,6 +176,16 @@ function AppContent() {
     setIsLoading(false)
   }, [])
 
+  useEffect(() => {
+    if (user?.role !== 'ADMIN') return
+    const path = location.pathname
+    const inAdminPanel = path.startsWith('/admin')
+    const allowedStandalone = path.startsWith('/notifications') || path.startsWith('/profile')
+    if (!inAdminPanel && !allowedStandalone) {
+      navigate('/admin/overview', { replace: true })
+    }
+  }, [user, location.pathname, navigate])
+
   // 登录处理
   const handleLogin = (userData) => {
     setUser(userData)
@@ -251,6 +257,10 @@ function AppContent() {
               <Route path="/notifications" element={<Notifications />} />
               <Route path="/profile" element={<Profile onLogout={handleLogout} />} />
               <Route
+                path="/admin/*"
+                element={user?.role === 'ADMIN' ? <AdminPanel /> : <Navigate to="/" replace />}
+              />
+              <Route
                 path="/course/overview"
                 element={user?.role === 'STUDENT' ? <StudentOverview /> : <Dashboard />}
               />
@@ -259,7 +269,6 @@ function AppContent() {
               <Route path="/course/quiz" element={<QuizModule />} />
               <Route path="/course/resources" element={<ResourceModule />} />
               <Route path="/course/vote" element={<VoteModule />} />
-              <Route path="/course/analytics" element={<DataAnalysis />} />
               <Route path="/course/agent" element={<AgentGenerator />} />
               <Route path="/course/ai-chat" element={<AIChat />} />
             </Routes>
