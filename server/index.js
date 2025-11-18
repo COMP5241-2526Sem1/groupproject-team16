@@ -16,17 +16,6 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 简单日志系统：记录请求 & 响应耗时
-app.use((req, res, next) => {
-  const start = Date.now();
-  res.on('finish', () => {
-    const duration = Date.now() - start;
-    const logEntry = `[${new Date().toISOString()}] ${req.method} ${req.originalUrl} ${res.statusCode} - ${duration}ms`;
-    console.log(logEntry);
-  });
-  next();
-});
-
 // 静态文件服务 - 提供上传文件访问
 // 在 serverless 环境中使用 /tmp 目录
 const isServerless = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME;
@@ -83,8 +72,7 @@ app.get('/health', async (req, res) => {
 
 // 错误处理中间件
 app.use((err, req, res, next) => {
-  console.error(`[${new Date().toISOString()}] ERROR ${req.method} ${req.originalUrl}`);
-  console.error(err.stack || err);
+  console.error(err.stack);
   res.status(500).json({ 
     error: 'Something went wrong!',
     message: err.message 

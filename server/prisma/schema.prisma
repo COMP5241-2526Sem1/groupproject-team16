@@ -224,7 +224,6 @@ enum VoteType {
   MULTIPLE
 }
 
-// 用户设置表 (个人资料/偏好)
 // 投票结果表
 model VoteResult {
   id              String   @id @default(uuid())

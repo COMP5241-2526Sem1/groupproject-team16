@@ -51,7 +51,6 @@ router.post('/register', async (req, res) => {
       user: newUser
     });
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] /auth/register error:`, error);
     res.status(500).json({ error: '注册失败', message: error.message });
   }
 });
@@ -91,7 +90,6 @@ router.post('/login', async (req, res) => {
       user: { id: user.id, email: user.email, name: user.name, role: user.role }
     });
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] /auth/login error:`, error);
     res.status(500).json({ error: '登录失败', message: error.message });
   }
 });
