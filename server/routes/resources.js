@@ -8,6 +8,7 @@ const prisma = getPrisma();
 const ossClient = ossConfig.accessKeyId && ossConfig.accessKeySecret && ossConfig.bucket 
   ? new OSSClient(ossConfig.accessKeyId, ossConfig.accessKeySecret, ossConfig.bucket, ossConfig.region, ossConfig.prefix)
   : null;
+const ossLog=(step,meta={})=>console.log(`[OSS-RESOURCE] ${step}`,meta);
 
 // 格式化文件大小
 const formatSize = (bytes) => {
@@ -49,6 +50,7 @@ router.get('/', async (req, res) => {
       try {
         // 如果 fileUrl 是 OSS 路径，生成签名 URL
         if (ossClient && !url.startsWith('http')) {
+          ossLog('list-url',{resourceId:resource.id});
           url = await ossClient.getFileUrl(resource.fileUrl, 3600 * 24 * 7); // 7天有效期
         }
       } catch (e) {
@@ -102,6 +104,7 @@ router.get('/:id', async (req, res) => {
     let url = resource.fileUrl;
     try {
       if (ossClient && !url.startsWith('http')) {
+        ossLog('detail-url',{resourceId:resource.id});
         url = await ossClient.getFileUrl(resource.fileUrl, 3600 * 24 * 7);
       }
     } catch (e) {
@@ -238,14 +241,14 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     if (ossClient) {
       try {
         let ossPath = resource.fileUrl;
-        // 如果 fileUrl 是完整 URL，提取路径
         if (ossPath.startsWith('http')) {
           try {
             const url = new URL(ossPath);
             const pathParts = url.pathname.split('/').filter(p => p);
-            ossPath = pathParts.slice(-2).join('/'); // 获取课程名/文件名
+            ossPath = pathParts.slice(-2).join('/');
           } catch {}
         }
+        ossLog('delete',{resourceId:req.params.id,ossPath});
         await ossClient.deleteFile(ossPath);
       } catch (e) {
         console.warn('OSS删除失败，继续删除数据库记录:', e.message);
@@ -288,7 +291,7 @@ router.get('/:id/download', async (req, res) => {
     
     // 从OSS获取文件流
     const ossPath = resource.fileUrl; // fileUrl存储的是OSS路径（如：课程名/文件名）
-    console.log(`尝试从OSS下载文件，路径: ${ossPath}`);
+    ossLog('download-start',{resourceId:req.params.id,ossPath});
     
     try {
       const fileStream = await ossClient.getFileStream(ossPath);
@@ -309,13 +312,13 @@ router.get('/:id/download', async (req, res) => {
         data: { downloads: { increment: 1 } }
       }).catch(e => console.warn('记录下载次数失败:', e.message));
     } catch (ossError) {
-      console.error(`OSS获取文件流失败 (路径: ${ossPath}):`, ossError.message);
-      // 如果OSS获取失败，尝试生成签名URL并重定向
+      ossLog('download-error',{ossPath,msg:ossError.message});
       try {
         const fileUrl = await ossClient.getFileUrl(ossPath, 3600);
+        ossLog('download-fallback-url',{ossPath,fileUrl});
         res.redirect(fileUrl);
       } catch (urlError) {
-        console.error('生成下载URL也失败:', urlError.message);
+        ossLog('download-url-error',{ossPath,msg:urlError.message});
         res.status(500).json({ error: '下载失败', message: `OSS错误: ${ossError.message}` });
       }
     }
