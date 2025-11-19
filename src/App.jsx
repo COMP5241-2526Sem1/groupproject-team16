@@ -17,6 +17,7 @@ import Notifications from './components/Notifications.jsx'
 import Profile from './components/Profile.jsx'
 import StudentOverview from './components/StudentOverview.jsx'
 import AdminPanel from './components/admin/AdminPanel.jsx'
+import { Toaster } from '@/components/ui/sonner.jsx'
 
 // NavHead - 顶部导航栏组件
 function NavHead({ currentCourse, user, onLogout }) {
@@ -284,6 +285,7 @@ function App() {
   return (
     <Router>
       <AppContent />
+      <Toaster />
     </Router>
   )
 }

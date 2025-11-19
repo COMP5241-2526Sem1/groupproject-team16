@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getPrisma } = require('../utils/prisma');
-const { authenticateToken } = require('../middleware/auth');
+const { authenticateToken, authorizeRoles } = require('../middleware/auth');
 const prisma = getPrisma();
 
 // 计算投票百分比
@@ -72,9 +72,10 @@ router.get('/', async (req, res) => {
   }
 });
 
-// 获取单个投票
-router.get('/:id', async (req, res) => {
+// 获取单个投票（包含用户是否已投票）
+router.get('/:id', authenticateToken, async (req, res) => {
   try {
+    const userId = req.user?.userId;
     const vote = await prisma.vote.findUnique({
       where: { id: req.params.id },
       include: {
@@ -83,7 +84,9 @@ router.get('/:id', async (req, res) => {
             students: true
           }
         },
-        results: true
+        results: {
+          where: userId ? { studentId: userId } : undefined
+        }
       }
     });
 
@@ -93,11 +96,21 @@ router.get('/:id', async (req, res) => {
 
     const options = Array.isArray(vote.options) ? vote.options : JSON.parse(vote.options || '[]');
     const totalVotes = options.reduce((sum, opt) => sum + (opt.votes || 0), 0);
-    const participants = vote.results.length;
+    const participants = await prisma.voteResult.count({ where: { voteId: vote.id } });
     const total = vote.course.students.length;
     const now = new Date();
     const isActive = new Date(vote.deadline) > now;
     const status = isActive ? 'active' : 'completed';
+
+    // 检查用户是否已投票
+    const userVote = userId ? await prisma.voteResult.findUnique({
+      where: {
+        voteId_studentId: {
+          voteId: req.params.id,
+          studentId: userId
+        }
+      }
+    }) : null;
 
     const data = {
       id: vote.id,
@@ -110,7 +123,11 @@ router.get('/:id', async (req, res) => {
       total,
       deadline: vote.deadline.toISOString().split('T')[0],
       createdAt: vote.createdAt.toISOString(),
-      options: calculatePercentages(options, totalVotes)
+      options: calculatePercentages(options, totalVotes),
+      hasVoted: !!userVote,
+      userSelectedOptions: userVote ? (Array.isArray(userVote.selectedOptions) 
+        ? userVote.selectedOptions 
+        : JSON.parse(userVote.selectedOptions || '[]')) : []
     };
 
     res.json({ success: true, data });
@@ -120,12 +137,15 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// 创建投票
-router.post('/', authenticateToken, async (req, res) => {
+// 创建投票（仅教师和管理员）
+router.post('/', authenticateToken, authorizeRoles('TEACHER', 'ADMIN'), async (req, res) => {
   try {
     const { title, courseId, type, deadline, options } = req.body;
     if (!title || !options || options.length < 2) {
       return res.status(400).json({ error: '标题和选项不能为空，至少需要2个选项' });
+    }
+    if (!courseId) {
+      return res.status(400).json({ error: '课程ID不能为空' });
     }
 
     const voteOptions = options.map((opt, index) => ({
@@ -136,7 +156,7 @@ router.post('/', authenticateToken, async (req, res) => {
 
     const vote = await prisma.vote.create({
       data: {
-        courseId: courseId || req.user?.courseId || '1',
+        courseId,
         title,
         type: type === 'multiple' ? 'MULTIPLE' : 'SINGLE',
         options: voteOptions,
@@ -356,18 +376,23 @@ router.post('/:id/vote', authenticateToken, async (req, res) => {
   }
 });
 
-// 获取投票统计
-router.get('/:id/stats', async (req, res) => {
+// 获取投票统计和详情（包含学生投票情况）
+router.get('/:id/stats', authenticateToken, async (req, res) => {
   try {
     const vote = await prisma.vote.findUnique({
       where: { id: req.params.id },
       include: {
         course: {
           include: {
-            students: true
+            students: true,
+            teacher: { select: { id: true, name: true, email: true } }
           }
         },
-        results: true
+        results: {
+          include: {
+            student: { select: { id: true, name: true, email: true } }
+          }
+        }
       }
     });
 
@@ -381,6 +406,17 @@ router.get('/:id/stats', async (req, res) => {
     const total = vote.course.students.length;
     const participationRate = total > 0 ? Math.round((participants / total) * 100) : 0;
 
+    // 构建学生投票详情
+    const studentVotes = vote.results.map(result => ({
+      studentId: result.studentId,
+      studentName: result.student?.name || '未知',
+      studentEmail: result.student?.email || '',
+      selectedOptions: Array.isArray(result.selectedOptions) 
+        ? result.selectedOptions 
+        : JSON.parse(result.selectedOptions || '[]'),
+      submittedAt: result.submittedAt
+    }));
+
     res.json({
       success: true,
       data: {
@@ -388,7 +424,8 @@ router.get('/:id/stats', async (req, res) => {
         options: calculatePercentages(options, totalVotes),
         participants,
         total,
-        participationRate
+        participationRate,
+        studentVotes
       }
     });
   } catch (error) {
@@ -397,8 +434,8 @@ router.get('/:id/stats', async (req, res) => {
   }
 });
 
-// 结束投票
-router.post('/:id/end', authenticateToken, async (req, res) => {
+// 结束投票（仅教师和管理员）
+router.post('/:id/end', authenticateToken, authorizeRoles('TEACHER', 'ADMIN'), async (req, res) => {
   try {
     const vote = await prisma.vote.update({
       where: { id: req.params.id },
